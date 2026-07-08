@@ -4,3 +4,4 @@ moc_*
 /homed-esphome
 /root
 *.deb
+*.changes

@@ -29,4 +29,40 @@ chmod 755 "$STAGING/DEBIAN/postinst" "$STAGING/DEBIAN/prerm"
 
 dpkg-deb --build "$STAGING" "${PKG}.deb"
 rm -rf "$STAGING"
-echo "Built: ${PKG}.deb"
+
+# Generate .changes file
+DEB="${PKG}.deb"
+SIZE=$(wc -c < "$DEB")
+MD5=$(md5sum    "$DEB" | awk '{print $1}')
+SHA1=$(sha1sum  "$DEB" | awk '{print $1}')
+SHA256=$(sha256sum "$DEB" | awk '{print $1}')
+DATE=$(date -R)
+MAINTAINER=$(grep '^Maintainer:' deploy/apt/control | sed 's/Maintainer: //')
+DESCRIPTION=$(grep '^Description:' deploy/apt/control | sed 's/Description: //')
+
+cat > "${PKG}.changes" << EOF
+Format: 1.8
+Date: ${DATE}
+Source: homed-service-esphome
+Binary: homed-service-esphome
+Architecture: ${ARCH}
+Version: ${VERSION}
+Distribution: unstable
+Urgency: low
+Maintainer: ${MAINTAINER}
+Description:
+ homed-service-esphome - ${DESCRIPTION}
+Changes:
+ homed-service-esphome (${VERSION}) unstable; urgency=low
+ .
+ * Package release
+Checksums-Sha1:
+ ${SHA1} ${SIZE} ${DEB}
+Checksums-Sha256:
+ ${SHA256} ${SIZE} ${DEB}
+Files:
+ ${MD5} ${SIZE} misc standard ${DEB}
+EOF
+
+echo "Built: ${DEB}"
+echo "Built: ${PKG}.changes"
