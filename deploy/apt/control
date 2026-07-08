@@ -1,0 +1,8 @@
+Package: homed-service-esphome
+Version:
+Architecture:
+Maintainer: bazuchan
+Depends: homed-common, homed-qt
+Section: misc
+Priority: standard
+Description: HOMEd ESPHome Service

@@ -1,0 +1,11 @@
+[Unit]
+Description=HOMEd ESPHome Service
+
+[Service]
+ExecStart=/usr/bin/homed-esphome
+Environment=LD_LIBRARY_PATH=/usr/lib
+KillSignal=SIGTERM
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -13,22 +13,19 @@ mkdir -p "$STAGING/DEBIAN"
 mkdir -p "$STAGING/usr/bin"
 mkdir -p "$STAGING/etc/homed"
 mkdir -p "$STAGING/opt/homed-esphome"
+mkdir -p "$STAGING/lib/systemd/system"
 
 cp homed-esphome "$STAGING/usr/bin/"
 cp deploy/data/etc/homed/homed-esphome.conf "$STAGING/etc/homed/"
+cp deploy/systemd/homed-esphome.service "$STAGING/lib/systemd/system/"
 
-cat > "$STAGING/DEBIAN/control" << EOF
-Package: homed-service-esphome
-Version: ${VERSION}
-Architecture: ${ARCH}
-Maintainer: drdm
-Depends: libqt5core5a, libqt5network5, libssl3
-Description: HOMEd service for ESPHome devices
- Integrates ESPHome devices into the HOMEd ecosystem via the ESPHome
- Native API using Noise_NNpsk0 encrypted protocol over TCP.
-EOF
+sed "s/^Version:$/Version: ${VERSION}/; s/^Architecture:$/Architecture: ${ARCH}/" \
+    deploy/apt/control > "$STAGING/DEBIAN/control"
 
-echo "/etc/homed/homed-esphome.conf" > "$STAGING/DEBIAN/conffiles"
+cp deploy/apt/conffiles "$STAGING/DEBIAN/conffiles"
+cp deploy/apt/postinst  "$STAGING/DEBIAN/postinst"
+cp deploy/apt/prerm     "$STAGING/DEBIAN/prerm"
+chmod 755 "$STAGING/DEBIAN/postinst" "$STAGING/DEBIAN/prerm"
 
 dpkg-deb --build "$STAGING" "${PKG}.deb"
 rm -rf "$STAGING"

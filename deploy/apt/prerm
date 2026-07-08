@@ -1,0 +1,6 @@
+#!/bin/bash
+
+systemctl stop homed-esphome.service
+systemctl disable homed-esphome.service
+
+exit 0

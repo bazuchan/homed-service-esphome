@@ -1,0 +1,4 @@
+name = homed-esphome
+description = HOMEd ESPHome Service
+maintainer = bazuchan
+depends = homed-common homed-qt

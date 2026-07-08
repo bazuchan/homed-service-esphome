@@ -102,6 +102,7 @@ Produces `homed-service-esphome_<version>_<arch>.deb` in the current directory. 
 | Path | Content |
 |------|---------|
 | `/usr/bin/homed-esphome` | Service binary |
+| `/lib/systemd/system/homed-esphome.service` | systemd unit (enabled and started on install) |
 | `/etc/homed/homed-esphome.conf` | Default configuration (marked as conffile) |
 | `/opt/homed-esphome/` | Runtime data directory |
 

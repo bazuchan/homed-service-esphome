@@ -1,0 +1,6 @@
+#!/bin/sh
+
+/etc/init.d/homed-esphome stop
+/etc/init.d/homed-esphome disable
+
+exit 0
