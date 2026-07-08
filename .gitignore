@@ -1,0 +1,6 @@
+*.o
+moc_*
+.qmake.stash
+/homed-esphome
+/root
+*.deb
