@@ -566,7 +566,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         }
         else if (info.type == "button")
         {
-            auto expose = QSharedPointer<ButtonObject>::create();
+            auto expose = QSharedPointer<ButtonObject>::create(info.objectId);
             m_device->options().insert(info.objectId, QVariantMap {{"type", "button"}, {"control", true}, {"title", title}});
             ep->exposes().append(expose);
         }
