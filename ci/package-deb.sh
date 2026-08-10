@@ -1,7 +1,7 @@
 #!/bin/sh
 # Packages a built homed-esphome binary as a .deb.
 # Usage: ci/package-deb.sh <target-id> <version> <binary>
-# Output: <repo-root>/homed-service-esphome_<version>_<arch>.deb
+# Output: <repo-root>/homed-esphome_<version>_<arch>.deb
 set -e
 
 TARGET_ID="$1"
@@ -24,7 +24,7 @@ if [ -z "$TARGET" ]; then
 fi
 
 ARCHITECTURE="$(echo "$TARGET" | jq -r '.architecture')"
-PACKAGE="homed-service-esphome_${VERSION}_${ARCHITECTURE}"
+PACKAGE="homed-esphome_${VERSION}_${ARCHITECTURE}"
 STAGING="$(mktemp -d)"
 
 # Anything already sitting under deploy/data (config, but also static assets

@@ -5,7 +5,7 @@ set -e
 
 VERSION=$(grep 'SERVICE_VERSION' controller.h | sed 's/.*"\(.*\)".*/\1/')
 ARCH=$(dpkg --print-architecture)
-PKG="homed-service-esphome_${VERSION}_${ARCH}"
+PKG="homed-esphome_${VERSION}_${ARCH}"
 STAGING="/tmp/${PKG}"
 
 rm -rf "$STAGING"
@@ -43,17 +43,17 @@ DESCRIPTION=$(grep '^Description:' deploy/apt/control | sed 's/Description: //')
 cat > "${PKG}.changes" << EOF
 Format: 1.8
 Date: ${DATE}
-Source: homed-service-esphome
-Binary: homed-service-esphome
+Source: homed-esphome
+Binary: homed-esphome
 Architecture: ${ARCH}
 Version: ${VERSION}
 Distribution: unstable
 Urgency: low
 Maintainer: ${MAINTAINER}
 Description:
- homed-service-esphome - ${DESCRIPTION}
+ homed-esphome - ${DESCRIPTION}
 Changes:
- homed-service-esphome (${VERSION}) unstable; urgency=low
+ homed-esphome (${VERSION}) unstable; urgency=low
  .
  * Package release
 Checksums-Sha1:

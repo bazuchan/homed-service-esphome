@@ -2,7 +2,7 @@
 # Packages a built homed-esphome binary as an .ipk (opkg format), for either a
 # native OpenWrt (opkg) target or a Keenetic/Entware target.
 # Usage: ci/package-ipk.sh <target-id> <version> <binary>
-# Output: <repo-root>/homed-service-esphome_<version>_<arch>.ipk
+# Output: <repo-root>/homed-esphome_<version>_<arch>.ipk
 set -e
 
 TARGET_ID="$1"
@@ -35,7 +35,7 @@ case "$FLAVOR" in
         ;;
 esac
 
-PACKAGE="homed-service-esphome_${VERSION}_${ARCHITECTURE}"
+PACKAGE="homed-esphome_${VERSION}_${ARCHITECTURE}"
 STAGING="$(mktemp -d)"
 DATA="$STAGING/data"
 CONTROL="$STAGING/control"

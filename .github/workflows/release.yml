@@ -57,8 +57,8 @@ jobs:
         with:
           name: package-${{ matrix.target }}
           path: |
-            homed-service-esphome_*.deb
-            homed-service-esphome_*.ipk
+            homed-esphome_*.deb
+            homed-esphome_*.ipk
           if-no-files-found: error
 
   publish:

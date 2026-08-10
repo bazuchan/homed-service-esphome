@@ -97,7 +97,7 @@ This clones `homed-service-common` into `../homed-common` (sibling of the repo d
 ./build-deb.sh
 ```
 
-Produces `homed-service-esphome_<version>_<arch>.deb` in the current directory. The package installs:
+Produces `homed-esphome_<version>_<arch>.deb` in the current directory. The package installs:
 
 | Path | Content |
 |------|---------|
