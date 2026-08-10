@@ -24,6 +24,13 @@ if [ -z "$TARGET" ]; then
 fi
 
 ARCHITECTURE="$(echo "$TARGET" | jq -r '.architecture')"
+
+# dpkg validates Architecture: against its own fixed name list -- "aarch64" (the
+# uname/toolchain name used elsewhere for this target) isn't on it, "arm64" is.
+case "$ARCHITECTURE" in
+    aarch64) ARCHITECTURE=arm64 ;;
+esac
+
 PACKAGE="homed-esphome_${VERSION}_${ARCHITECTURE}"
 STAGING="$(mktemp -d)"
 
