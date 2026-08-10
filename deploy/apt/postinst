@@ -1,7 +1,16 @@
 #!/bin/bash
 
 systemctl daemon-reload
-systemctl enable homed-esphome.service
-systemctl start homed-esphome.service
+
+# dpkg calls this as "postinst configure <most-recently-configured-version>".
+# $2 is empty only on a genuine first install -- on upgrade it holds the old
+# version, in which case we must not touch the enabled/disabled state a user
+# may have set, just restart to pick up the new binary if it was running.
+if [ -z "$2" ]; then
+    systemctl enable homed-esphome.service
+    systemctl start homed-esphome.service
+else
+    systemctl try-restart homed-esphome.service
+fi
 
 exit 0

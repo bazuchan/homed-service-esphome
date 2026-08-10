@@ -1,6 +1,12 @@
 #!/bin/bash
 
-systemctl stop homed-esphome.service
-systemctl disable homed-esphome.service
+# dpkg calls this as "prerm remove" on an actual removal, or "prerm upgrade
+# <new-version>" just before unpacking an upgrade -- only stop/disable on a
+# real removal, so an upgrade doesn't wipe out a user's enabled/disabled
+# choice (postinst leaves that state alone on upgrade too).
+if [ "$1" = "remove" ]; then
+    systemctl stop homed-esphome.service
+    systemctl disable homed-esphome.service
+fi
 
 exit 0
