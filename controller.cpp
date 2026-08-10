@@ -99,7 +99,12 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
 
             if (entityType == "light")
             {
-                QVariant lightOpt = device->options().value("light");
+                // Read from the objectId-scoped keys esphome.cpp stores these
+                // under (a second light on the device would otherwise collide
+                // on a shared "light"/"colorTemperature" key) -- but the output
+                // key stays plain "light"/"colorTemperature", since that's what
+                // homed-web's expose.js expects for this endpoint's own options.
+                QVariant lightOpt = device->options().value(objectId + "_light");
 
                 // LightObject's expose name is hardcoded "light" (homed-common),
                 // so items.first() above is always "light" too -- the title we
@@ -110,7 +115,7 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                 if (lightOpt.isValid() && !lightOpt.toStringList().isEmpty())
                     options.insert("light", lightOpt);
 
-                QVariant ctOpt = device->options().value("colorTemperature");
+                QVariant ctOpt = device->options().value(objectId + "_colorTemperature");
                 if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
             }
 

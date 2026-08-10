@@ -552,10 +552,25 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         {
             auto expose = QSharedPointer<LightObject>::create();
             m_device->options().insert(objectId, QVariantMap {{"title", title}});
+
+            // LightObject's expose name is hardcoded "light" (homed-common), so
+            // unlike every other type this can't key off objectId the same way.
+            // Two writes: the plain "light"/"colorTemperature" keys are what
+            // LightObject::request() itself reads via option() for HA discovery
+            // (m_name is always literal "light" there, so with >1 light on a
+            // device this pre-existing homed-common limitation still means HA
+            // only sees the last-discovered light's capabilities -- unchanged
+            // from before). The objectId-scoped copy is what our own
+            // Controller::publishExposes reads, so the web UI gets each light's
+            // real capabilities instead of the last light's clobbering the rest.
             m_device->options().insert("light", info.lightOptions);
+            m_device->options().insert(objectId + "_light", info.lightOptions);
             if (info.minMireds > 0 || info.maxMireds > 0)
-                m_device->options().insert("colorTemperature",
-                    QVariantMap {{"min", static_cast<int>(info.minMireds)}, {"max", static_cast<int>(info.maxMireds)}});
+            {
+                QVariantMap colorTemperature {{"min", static_cast<int>(info.minMireds)}, {"max", static_cast<int>(info.maxMireds)}};
+                m_device->options().insert("colorTemperature", colorTemperature);
+                m_device->options().insert(objectId + "_colorTemperature", colorTemperature);
+            }
             ep->exposes().append(expose);
         }
         else if (info.type == "select")
