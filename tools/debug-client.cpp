@@ -316,15 +316,20 @@ int main(int argc, char *argv[])
     hello.addVarint(3, 10);
     sendMessage(socket, noise, 1 /* HelloRequest */, hello.data());
 
-    int sensorCount = 0, listEntitiesTotal = 0;
-    bool done = false;
+    int sensorCount = 0, listEntitiesTotal = 0, stateCount = 0;
+    bool subscribed = false;
 
-    while (!done)
+    while (true)
     {
+        // Once we've subscribed, a read timeout just means "no more state
+        // updates right now" -- that's a normal end condition, not an error.
         QByteArray framePayload;
         if (!reader.readFrame(framePayload, 10000))
         {
-            out << "timed out waiting for next message\n";
+            if (subscribed)
+                out << "\nno further state updates after " << stateCount << " (waited 10s) -- exiting\n";
+            else
+                out << "timed out waiting for next message\n";
             break;
         }
 
@@ -366,15 +371,23 @@ int main(int argc, char *argv[])
                 break;
 
             case 19: // ListEntitiesDoneResponse
-                out << "\n=== done: " << listEntitiesTotal << " entities total, " << sensorCount << " of them sensors ===\n";
+                out << "\n=== " << listEntitiesTotal << " entities total, " << sensorCount << " of them sensors -- subscribing to state updates ===\n";
                 out.flush();
-                done = true;
+                sendMessage(socket, noise, 20 /* SubscribeStatesRequest */);
+                subscribed = true;
+                break;
+
+            case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 50: case 53:
+                stateCount++;
                 break;
 
             default:
                 break;
         }
     }
+
+    out << "\n=== received " << stateCount << " state update(s) total ===\n";
+    out.flush();
 
     socket.disconnectFromHost();
     return 0;
