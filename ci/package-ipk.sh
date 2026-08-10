@@ -1,0 +1,82 @@
+#!/bin/sh
+# Packages a built homed-esphome binary as an .ipk (opkg format), for either a
+# native OpenWrt (opkg) target or a Keenetic/Entware target.
+# Usage: ci/package-ipk.sh <target-id> <version> <binary>
+# Output: <repo-root>/homed-service-esphome_<version>_<arch>.ipk
+set -e
+
+TARGET_ID="$1"
+VERSION="$2"
+BINARY="$3"
+
+if [ -z "$TARGET_ID" ] || [ -z "$VERSION" ] || [ -z "$BINARY" ]; then
+    echo "usage: $0 <target-id> <version> <binary>" >&2
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TARGETS_JSON="$SCRIPT_DIR/targets.json"
+
+TARGET="$(jq -c --arg id "$TARGET_ID" '.targets[] | select(.id == $id)' "$TARGETS_JSON")"
+if [ -z "$TARGET" ]; then
+    echo "unknown target: $TARGET_ID" >&2
+    exit 1
+fi
+
+ARCHITECTURE="$(echo "$TARGET" | jq -r '.architecture')"
+FLAVOR="$(echo "$TARGET" | jq -r '.flavor')"
+
+case "$FLAVOR" in
+    openwrt|entware) ;;
+    *)
+        echo "target $TARGET_ID has no ipk flavor (expected openwrt or entware, got '$FLAVOR')" >&2
+        exit 1
+        ;;
+esac
+
+PACKAGE="homed-service-esphome_${VERSION}_${ARCHITECTURE}"
+STAGING="$(mktemp -d)"
+DATA="$STAGING/data"
+CONTROL="$STAGING/control"
+
+mkdir -p "$DATA" "$CONTROL"
+
+if [ "$FLAVOR" = "openwrt" ]; then
+    mkdir -p "$DATA/etc/init.d" "$DATA/etc/homed" "$DATA/usr/bin" "$DATA/opt/homed-esphome"
+    cp "$BINARY" "$DATA/usr/bin/homed-esphome"
+    cp "$REPO_DIR/deploy/procd/homed-esphome" "$DATA/etc/init.d/homed-esphome"
+    cp "$REPO_DIR/deploy/data/etc/homed/homed-esphome.conf" "$DATA/etc/homed/homed-esphome.conf"
+    chmod +x "$DATA/etc/init.d/homed-esphome"
+
+    cp "$REPO_DIR/deploy/opkg/conffiles" "$CONTROL/conffiles"
+    cp "$REPO_DIR/deploy/opkg/postinst" "$CONTROL/postinst"
+    cp "$REPO_DIR/deploy/opkg/prerm" "$CONTROL/prerm"
+    chmod +x "$CONTROL/postinst" "$CONTROL/prerm"
+    sed "s/^Version:.*/Version: ${VERSION}/; s/^Architecture:.*/Architecture: ${ARCHITECTURE}/" \
+        "$REPO_DIR/deploy/opkg/control" > "$CONTROL/control"
+else
+    # Entware/Keenetic: everything lives under /opt, matching homed-common's
+    # .deploy_entware job (same /opt/<name> -> /opt/var/lib/<name>,
+    # /var/log -> /opt/var/log config rewrite).
+    mkdir -p "$DATA/opt/etc/init.d" "$DATA/opt/etc/homed" "$DATA/opt/bin" "$DATA/opt/var/lib/homed-esphome"
+    cp "$BINARY" "$DATA/opt/bin/homed-esphome"
+    cp "$REPO_DIR/deploy/entware/S88homed-esphome" "$DATA/opt/etc/init.d/S88homed-esphome"
+    chmod +x "$DATA/opt/etc/init.d/S88homed-esphome"
+
+    sed -e "s+/opt/homed-esphome+/opt/var/lib/homed-esphome+g" -e "s+/var/log+/opt/var/log+g" \
+        "$REPO_DIR/deploy/data/etc/homed/homed-esphome.conf" > "$DATA/opt/etc/homed/homed-esphome.conf"
+
+    cp "$REPO_DIR/deploy/entware/conffiles" "$CONTROL/conffiles"
+    sed "s/^Version:.*/Version: ${VERSION}/; s/^Architecture:.*/Architecture: ${ARCHITECTURE}/" \
+        "$REPO_DIR/deploy/entware/control" > "$CONTROL/control"
+fi
+
+(cd "$DATA" && fakeroot tar -czf "$STAGING/data.tar.gz" .)
+(cd "$CONTROL" && fakeroot tar -czf "$STAGING/control.tar.gz" .)
+echo "2.0" > "$STAGING/debian-binary"
+
+(cd "$STAGING" && fakeroot tar -czf "$REPO_DIR/${PACKAGE}.ipk" control.tar.gz data.tar.gz debian-binary)
+rm -rf "$STAGING"
+
+echo "Packaged: ${PACKAGE}.ipk"

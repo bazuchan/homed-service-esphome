@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: targets
+        run: echo "matrix=$(jq -c '[.targets[] | select(.enabled) | .id]' ci/targets.json)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/homed-toolchains
+          key: homed-toolchains-${{ matrix.target }}-${{ hashFiles('ci/targets.json') }}
+
+      - name: Build
+        run: ci/build.sh "${{ matrix.target }}"
+
+      - name: Package
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}"
+          TARGET='${{ matrix.target }}'
+          BINARY="homed-esphome-${TARGET}"
+          FORMAT="$(jq -r --arg id "$TARGET" '.targets[] | select(.id == $id) | .format' ci/targets.json)"
+
+          case "$FORMAT" in
+            deb) ci/package-deb.sh "$TARGET" "$VERSION" "$BINARY" ;;
+            ipk) ci/package-ipk.sh "$TARGET" "$VERSION" "$BINARY" ;;
+            *) echo "unknown package format for $TARGET: $FORMAT" >&2; exit 1 ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.target }}
+          path: |
+            homed-service-esphome_*.deb
+            homed-service-esphome_*.ipk
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

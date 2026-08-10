@@ -1,0 +1,111 @@
+{
+  "_comment": "Single source of truth for build/package targets, mirrors homed-service-common/.gitlab-ci/build.yml. Consumed by ci/build.sh, ci/package-*.sh and .github/workflows/release.yml (matrix generated from the enabled entries). gcc/qt tarballs are fetched from https://sandbox.u236.org/toolchain/{gcc,qt}/<name>.tar.xz. toolchain=null means no public toolchain exists yet for that target.",
+
+  "targets": [
+    {
+      "id": "linux-amd64",
+      "enabled": true,
+      "architecture": "amd64",
+      "toolchain": "docker:gcc:10.5.0",
+      "qt_build": "qt-amd64-linux-5.15.4-shared",
+      "format": "deb"
+    },
+    {
+      "id": "linux-aarch64",
+      "enabled": true,
+      "architecture": "aarch64",
+      "toolchain": "gcc-aarch64-none-linux-gnu-10.2.0",
+      "qt_build": "qt-aarch64-linux-gnu-5.15.4-shared",
+      "format": "deb"
+    },
+    {
+      "id": "linux-armhf",
+      "enabled": true,
+      "architecture": "armhf",
+      "toolchain": "gcc-arm-linux-gnuebihf-9.4.0",
+      "qt_build": "qt-arm-linux-gnueabihf-5.15.4-shared",
+      "format": "deb"
+    },
+    {
+      "id": "linux-riscv64",
+      "enabled": false,
+      "architecture": "riscv64",
+      "toolchain": null,
+      "qt_build": "qt-riscv64-linux-gnu-5.15.4-shared",
+      "format": "deb",
+      "_note": "no public gcc/qt riscv64 toolchain yet; homed-common's own build.yml riscv64 job runs on a private native runner. qt_build name is already known (matches build.yml) - fill in \"toolchain\" (gcc-riscv64-linux-gnu-<version>) and flip enabled once gcc-riscv64-linux-gnu-*.tar.xz shows up at https://sandbox.u236.org/toolchain/gcc/ ."
+    },
+    {
+      "id": "openwrt-aarch64_generic",
+      "enabled": true,
+      "architecture": "aarch64_generic",
+      "toolchain": "gcc-aarch64_generic-openwrt-linux-8.4.0-musl",
+      "qt_build": "qt-aarch64_generic-openwrt-linux-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "openwrt"
+    },
+    {
+      "id": "openwrt-arm_cortex-a7_neon-vfpv4",
+      "enabled": true,
+      "architecture": "arm_cortex-a7_neon-vfpv4",
+      "toolchain": "gcc-arm_cortex-a7_neon-vfpv4-openwrt-linux-8.4.0-musl",
+      "qt_build": "qt-arm_cortex-a7_neon-vfpv4-openwrt-linux-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "openwrt"
+    },
+    {
+      "id": "openwrt-arm_cortex-a9_neon",
+      "enabled": true,
+      "architecture": "arm_cortex-a9_neon",
+      "toolchain": "gcc-arm_cortex-a9_neon-openwrt-linux-8.4.0-musl",
+      "qt_build": "qt-arm_cortex-a9_neon-openwrt-linux-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "openwrt"
+    },
+    {
+      "id": "openwrt-mips_24kc",
+      "enabled": true,
+      "architecture": "mips_24kc",
+      "toolchain": "gcc-mips_24kc-openwrt-linux-8.4.0-musl",
+      "qt_build": "qt-mips_24kc-openwrt-linux-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "openwrt"
+    },
+    {
+      "id": "openwrt-mipsel_24kc",
+      "enabled": true,
+      "architecture": "mipsel_24kc",
+      "toolchain": "gcc-mipsel_24kc-openwrt-linux-8.4.0-musl",
+      "qt_build": "qt-mipsel_24kc-openwrt-linux-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "openwrt"
+    },
+    {
+      "id": "entware-aarch64-3.10",
+      "enabled": true,
+      "architecture": "aarch64-3.10",
+      "toolchain": "gcc-aarch64-openwrt-linux-gnu-8.4.0",
+      "qt_build": "qt-aarch64-openwrt-linux-gnu-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "entware"
+    },
+    {
+      "id": "entware-mips-3.4",
+      "enabled": true,
+      "architecture": "mips-3.4",
+      "toolchain": "gcc-mips-openwrt-linux-gnu-8.4.0",
+      "qt_build": "qt-mips-openwrt-linux-gnu-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "entware"
+    },
+    {
+      "id": "entware-mipsel-3.4",
+      "enabled": true,
+      "architecture": "mipsel-3.4",
+      "toolchain": "gcc-mipsel-openwrt-linux-gnu-8.4.0",
+      "qt_build": "qt-mipsel-openwrt-linux-gnu-5.15.4-shared",
+      "format": "ipk",
+      "flavor": "entware"
+    }
+  ]
+}
