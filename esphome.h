@@ -92,7 +92,6 @@ private:
         quint32 key;
         QString type;
         QString name;
-        QString objectId;
         QString deviceClass;
         QString unit;
         QString stateClass;

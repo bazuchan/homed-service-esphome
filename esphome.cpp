@@ -5,32 +5,23 @@
 static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
 
-// Newer ESPHome versions no longer send object_id over the wire (it's empty
-// in ListEntitiesXxxResponse) and expect clients to derive it from the
-// entity's name instead -- same algorithm ESPHome's own firmware used to
-// apply before sending it: lowercase, non-alphanumeric runs collapse to a
-// single underscore, no leading/trailing underscore.
-static QString slugify(const QString &name)
+// homed-web's exposeMeta() (js/expose.js) parses every objectId as a single
+// <word>_<index> token -- e.g. "temperature_1" -- for grouping/classification
+// across the whole dashboard, not just this service. ESPHome's own device_class
+// values can be multi-word snake_case (e.g. "signal_strength", "carbon_dioxide"),
+// which would otherwise defeat that parsing the same way a multi-word objectId
+// did. Collapse any such wire string into a single camelCase token before it
+// ever becomes (part of) an objectId.
+static QString camelCase(const QString &snake)
 {
+    QStringList parts = snake.split('_', Qt::SkipEmptyParts);
     QString result;
-    bool lastUnderscore = false;
 
-    for (const QChar &c : name)
+    for (int i = 0; i < parts.count(); i++)
     {
-        if (c.isLetterOrNumber())
-        {
-            result.append(c.toLower());
-            lastUnderscore = false;
-        }
-        else if (!lastUnderscore && !result.isEmpty())
-        {
-            result.append('_');
-            lastUnderscore = true;
-        }
+        QString part = parts.at(i).toLower();
+        result += i == 0 ? part : part.left(1).toUpper() + part.mid(1);
     }
-
-    while (result.endsWith('_'))
-        result.chop(1);
 
     return result;
 }
@@ -390,20 +381,17 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
         switch (type)
         {
             case MsgType::ListEntitiesSwitch:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 9 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
             case MsgType::ListEntitiesBinary:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
             case MsgType::ListEntitiesSensor:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.deviceClass = f.string();
                 else if (f.field() == 6 && f.wireType() == 2) info.unit = f.string();
                 else if (f.field() == 7 && f.wireType() == 0) info.accuracyDecimals = static_cast<int>(f.varint());
@@ -421,14 +409,12 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 break;
 
             case MsgType::ListEntitiesTextSensor:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
             case MsgType::ListEntitiesLight:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 9 && f.wireType() == 5) info.minMireds = f.floatVal();
                 else if (f.field() == 10 && f.wireType() == 5) info.maxMireds = f.floatVal();
                 else if (f.field() == 12 && f.wireType() == 0)
@@ -448,14 +434,12 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 break;
 
             case MsgType::ListEntitiesSelect:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 6 && f.wireType() == 2) info.selectOptions.append(f.string());
                 break;
 
             case MsgType::ListEntitiesNumber:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 6 && f.wireType() == 5) info.minValue = f.floatVal();
                 else if (f.field() == 7 && f.wireType() == 5) info.maxValue = f.floatVal();
                 else if (f.field() == 8 && f.wireType() == 5) info.step = f.floatVal();
@@ -463,19 +447,15 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 break;
 
             case MsgType::ListEntitiesButton:
-                if (f.field() == 1 && f.wireType() == 2) info.objectId = f.string();
-                else if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
         }
     }
 
-    if (info.objectId.isEmpty())
-        info.objectId = slugify(info.name);
-
-    if (info.key == 0 || info.objectId.isEmpty())
+    if (info.key == 0)
     {
-        logWarning << m_device << "ignoring entity of type" << type << "with key" << info.key << "and objectId" << info.objectId << "(" << fields.count() << "fields decoded)";
+        logWarning << m_device << "ignoring entity of type" << type << "with key 0 (" << fields.count() << "fields decoded)";
         return;
     }
 
@@ -500,40 +480,60 @@ void EspHomeDevice::applyDiscoveredEntities(void)
     m_device->endpoints().clear();
     m_device->options().clear();
 
+    // objectId is <token>_<index>, never derived from the entity's human name --
+    // homed-web's exposeMeta() (js/expose.js) parses every objectId this way for
+    // dashboard grouping, and needs token to be a single camelCase word (see
+    // camelCase() above). token is the entity's device_class when ESPHome sends
+    // one (e.g. "temperature"), falling back to its HOMEd type (e.g. "sensor")
+    // otherwise; index disambiguates multiple entities that land on the same
+    // token on one device (three "temperature" sensors -> _1/_2/_3).
+    QMap<QString, int> tokenSeen;
+    QStringList objectIds;
+
+    for (const auto &info : m_pendingEntities)
+    {
+        QString token = camelCase(info.deviceClass.isEmpty() ? info.type : info.deviceClass);
+        int index = tokenSeen.value(token, 0) + 1;
+
+        tokenSeen.insert(token, index);
+        objectIds.append(QString("%1_%2").arg(token).arg(index));
+    }
+
     for (int i = 0; i < m_pendingEntities.count(); i++)
     {
         const EntityInfo &info = m_pendingEntities.at(i);
+        const QString &objectId = objectIds.at(i);
         quint8 endpointId = static_cast<quint8>(i + 1);
 
         auto ep = QSharedPointer<EndpointObject>::create(endpointId, m_device);
         ep->meta().insert("key", info.key);
         ep->meta().insert("type", info.type);
-        ep->meta().insert("objectId", info.objectId);
+        ep->meta().insert("objectId", objectId);
 
-        QString title = info.name.isEmpty() ? info.objectId : info.name;
+        QString title = info.name.isEmpty() ? objectId : info.name;
 
         if (info.type == "switch")
         {
             ep->exposes().append(QSharedPointer<SwitchObject>::create());
-            m_device->options().insert(info.objectId, QVariantMap {{"title", title}});
+            m_device->options().insert(objectId, QVariantMap {{"title", title}});
         }
         else if (info.type == "binary_sensor")
         {
-            auto expose = QSharedPointer<BinaryObject>::create(info.objectId);
+            auto expose = QSharedPointer<BinaryObject>::create(objectId);
             QVariantMap opts = {{"title", title}};
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
-            m_device->options().insert(info.objectId, opts);
+            m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "sensor" || info.type == "text_sensor")
         {
-            auto expose = QSharedPointer<SensorObject>::create(info.objectId);
+            auto expose = QSharedPointer<SensorObject>::create(objectId);
             QVariantMap opts = {{"title", title}};
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
             if (!info.stateClass.isEmpty()) opts.insert("state", info.stateClass);
             if (info.accuracyDecimals > 0) opts.insert("round", info.accuracyDecimals);
-            m_device->options().insert(info.objectId, opts);
+            m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "light")
@@ -547,13 +547,13 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         }
         else if (info.type == "select")
         {
-            auto expose = QSharedPointer<SelectObject>::create(info.objectId);
-            m_device->options().insert(info.objectId, QVariantMap {{"enum", info.selectOptions}, {"control", true}, {"title", title}});
+            auto expose = QSharedPointer<SelectObject>::create(objectId);
+            m_device->options().insert(objectId, QVariantMap {{"enum", info.selectOptions}, {"control", true}, {"title", title}});
             ep->exposes().append(expose);
         }
         else if (info.type == "number")
         {
-            auto expose = QSharedPointer<NumberObject>::create(info.objectId);
+            auto expose = QSharedPointer<NumberObject>::create(objectId);
             QVariantMap opts;
             opts.insert("min", static_cast<double>(info.minValue));
             opts.insert("max", static_cast<double>(info.maxValue));
@@ -561,13 +561,13 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             opts.insert("control", true);
             opts.insert("title", title);
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
-            m_device->options().insert(info.objectId, opts);
+            m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "button")
         {
-            auto expose = QSharedPointer<ButtonObject>::create(info.objectId);
-            m_device->options().insert(info.objectId, QVariantMap {{"type", "button"}, {"control", true}, {"title", title}});
+            auto expose = QSharedPointer<ButtonObject>::create(objectId);
+            m_device->options().insert(objectId, QVariantMap {{"type", "button"}, {"control", true}, {"title", title}});
             ep->exposes().append(expose);
         }
 
