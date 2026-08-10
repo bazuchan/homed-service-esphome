@@ -37,12 +37,29 @@ QString Controller::deviceTopic(DeviceObject *device)
     return m_devices->names() ? device->name() : device->address();
 }
 
+// Home Assistant's MQTT discovery topic (<prefix>/<component>/<node_id>/<object_id>/config)
+// only allows [a-zA-Z0-9_-] in node_id/object_id -- stricter than general MQTT
+// topics, which tolerate dots fine (see https://www.home-assistant.io/integrations/mqtt/#discovery-topic).
+// device->address() is a raw IP ("172.21.7.121") when used as our own fd/td
+// topic segment, but that same string also becomes part of uniqueId, which is
+// used directly as the discovery topic's node_id -- sanitize only that copy.
+static QString haSafeId(const QString &value)
+{
+    QString result = value;
+
+    for (QChar &c : result)
+        if (!c.isLetterOrNumber() && c != '_' && c != '-')
+            c = '_';
+
+    return result;
+}
+
 void Controller::publishExposes(DeviceObject *device, bool remove)
 {
     // HA discovery still uses the common library (numeric endpoint IDs in HA config)
     if (m_haEnabled)
     {
-        QString uid = QString("%1_%2").arg(uniqueId(), device->address());
+        QString uid = QString("%1_%2").arg(uniqueId(), haSafeId(device->address()));
         device->publishExposes(this,
             device->address(),
             uid,
@@ -332,6 +349,17 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
             }
         }
 
+        // HA discovery's command_topic (see Controller::stateChanged) ends in the
+        // numeric endpoint id, not objectId -- accept that form too.
+        if (endpointId == 0)
+        {
+            bool numeric;
+            quint32 numericId = objectId.toUInt(&numeric);
+
+            if (numeric && numericId > 0 && numericId <= 255 && device->endpoints().contains(static_cast<quint8>(numericId)))
+                endpointId = static_cast<quint8>(numericId);
+        }
+
         if (endpointId == 0)
             return;
 
@@ -406,8 +434,16 @@ void Controller::stateChanged(DeviceObject *device, quint8 endpointId)
     if (objectId.isEmpty())
         return;
 
-    QString topic = mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), objectId);
-    mqttPublish(topic, ep->state());
+    QJsonObject stateJson = ep->state();
+    mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), objectId), stateJson);
+
+    // homed-common's generic publishExposes() (used for HA discovery, see
+    // Controller::publishExposes) builds state_topic from the numeric endpoint
+    // id, not objectId -- mirror the same payload there too, or every
+    // HA-discovered entity sits permanently "unavailable" since it's listening
+    // on a topic we'd otherwise never publish to.
+    if (m_haEnabled)
+        mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), QString::number(endpointId)), stateJson);
 }
 
 void Controller::availabilityChanged(DeviceObject *device)

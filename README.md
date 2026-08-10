@@ -10,7 +10,7 @@ Devices are added and removed at runtime via MQTT commands — no config file ed
 |-----------------|--------------------------------------------------|--------|
 | `switch`        | On/off control, reports `status` (on/off)        | ✓      |
 | `binary_sensor` | Read-only boolean sensor (motion, contact, etc.) |        |
-| `sensor`        | Numeric sensor (temperature, humidity, etc.)     |        |
+| `sensor`        | Numeric sensor (temperature, humidity, etc.)     | ✓      |
 | `text_sensor`   | String-valued sensor                             |        |
 | `light`         | On/off, brightness, RGB color, color temperature |        |
 | `select`        | Dropdown selection with enumerated options       |        |
