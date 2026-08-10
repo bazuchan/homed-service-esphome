@@ -1,7 +1,11 @@
 *.o
 moc_*
 .qmake.stash
+/Makefile
 /homed-esphome
+/homed-esphome-*
 /root
+/home
 *.deb
+*.ipk
 *.changes

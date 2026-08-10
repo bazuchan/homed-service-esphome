@@ -1,0 +1,4 @@
+[submodule "noise-c"]
+	path = noise-c
+	url = https://github.com/esphome-libs/noise-c.git
+	branch = esp-port
