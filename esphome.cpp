@@ -583,8 +583,11 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             ep->exposes().append(expose);
         }
 
+        // Required for expose->option()/title() to see this device's options
+        // (title/unit/class/etc, inserted above) -- ExposeObject::option() walks
+        // up via m_parent, which nothing sets automatically.
         for (auto &expose : ep->exposes())
-            expose->setMultiple(true);
+            expose->setParent(ep.data());
 
         m_device->endpoints().insert(endpointId, ep);
     }

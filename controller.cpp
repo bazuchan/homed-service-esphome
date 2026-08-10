@@ -56,20 +56,20 @@ static QString haSafeId(const QString &value)
 
 void Controller::publishExposes(DeviceObject *device, bool remove)
 {
-    // HA discovery still uses the common library (numeric endpoint IDs in HA config)
-    if (m_haEnabled)
-    {
-        QString uid = QString("%1_%2").arg(uniqueId(), haSafeId(device->address()));
-        device->publishExposes(this,
-            device->address(),
-            uid,
-            m_haPrefix, true, m_haUpdate,
-            m_devices->names(), remove);
-    }
-
-    // Publish expose JSON with objectId as endpoint keys for stable topic routing
     QString devTopic = deviceTopic(device);
 
+    // Built ourselves rather than via DeviceObject::publishExposes() (homed-common):
+    // that call also unconditionally republishes its own numeric-endpoint-keyed
+    // copy of the expose/<service>/<device> topic (AbstractDeviceObject::addExposeData),
+    // which collides with the objectId-keyed one published below -- both land on
+    // the same retained topic, so a client already subscribed during a live
+    // (re)publish sees both messages and never prunes the stale numeric-keyed one.
+    // Also lets state_topic/command_topic use our actual objectId-based fd//td
+    // topics directly instead of homed-common's numeric-endpoint convention.
+    if (m_haEnabled)
+        publishHaDiscovery(device, devTopic, remove);
+
+    // Publish expose JSON with objectId as endpoint keys for stable topic routing
     if (!remove)
     {
         QMap<QString, QVariant> data;
@@ -119,6 +119,61 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
     {
         mqttPublish(mqttTopic("expose/%1/%2").arg(serviceTopic(), devTopic),
             QJsonObject(), true);
+    }
+}
+
+void Controller::publishHaDiscovery(DeviceObject *device, const QString &devTopic, bool remove)
+{
+    QString nodeId = QString("%1_%2").arg(uniqueId(), haSafeId(device->address()));
+    QJsonObject identity;
+    QJsonArray availability;
+
+    if (!remove)
+    {
+        identity.insert("identifiers", QJsonArray {nodeId});
+        identity.insert("name", device->name());
+        identity.insert("via_device", uniqueId());
+
+        availability.append(QJsonObject {{"topic", mqttTopic("device/%1/%2").arg(serviceTopic(), devTopic)}, {"value_template", "{{ value_json.status }}"}});
+        availability.append(QJsonObject {{"topic", mqttTopic("service/%1").arg(serviceTopic())}, {"value_template", "{{ value_json.status }}"}});
+    }
+
+    for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
+    {
+        auto ep = it.value().staticCast<EndpointObject>();
+        if (!ep)
+            continue;
+
+        QString objectId = ep->meta().value("objectId").toString();
+        if (objectId.isEmpty())
+            continue;
+
+        for (const auto &expose : ep->exposes())
+        {
+            if (!expose->discovery())
+                continue;
+
+            QString configTopic = QString("%1/%2/%3/%4/config").arg(m_haPrefix, expose->component(), nodeId, objectId);
+            QJsonObject json;
+
+            if (!remove)
+            {
+                // Our own fd//td topics, keyed by objectId -- matches exactly
+                // what stateChanged()/mqttReceived() publish/subscribe to, no
+                // separate numeric-endpoint scheme to keep in sync.
+                expose->setStateTopic(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), devTopic, objectId));
+                expose->setCommandTopic(mqttTopic("td/%1/%2/%3").arg(serviceTopic(), devTopic, objectId));
+
+                json = expose->request();
+                json.insert("availability", availability);
+                json.insert("availability_mode", "all");
+                json.insert("device", identity);
+                json.insert("name", expose->title());
+                json.insert("unique_id", QString("%1_%2").arg(nodeId, objectId));
+            }
+
+            mqttPublish(configTopic, json, true);
+        }
     }
 }
 
@@ -349,17 +404,6 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
             }
         }
 
-        // HA discovery's command_topic (see Controller::stateChanged) ends in the
-        // numeric endpoint id, not objectId -- accept that form too.
-        if (endpointId == 0)
-        {
-            bool numeric;
-            quint32 numericId = objectId.toUInt(&numeric);
-
-            if (numeric && numericId > 0 && numericId <= 255 && device->endpoints().contains(static_cast<quint8>(numericId)))
-                endpointId = static_cast<quint8>(numericId);
-        }
-
         if (endpointId == 0)
             return;
 
@@ -434,16 +478,7 @@ void Controller::stateChanged(DeviceObject *device, quint8 endpointId)
     if (objectId.isEmpty())
         return;
 
-    QJsonObject stateJson = ep->state();
-    mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), objectId), stateJson);
-
-    // homed-common's generic publishExposes() (used for HA discovery, see
-    // Controller::publishExposes) builds state_topic from the numeric endpoint
-    // id, not objectId -- mirror the same payload there too, or every
-    // HA-discovered entity sits permanently "unavailable" since it's listening
-    // on a topic we'd otherwise never publish to.
-    if (m_haEnabled)
-        mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), QString::number(endpointId)), stateJson);
+    mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), objectId), ep->state());
 }
 
 void Controller::availabilityChanged(DeviceObject *device)
