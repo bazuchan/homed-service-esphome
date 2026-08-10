@@ -42,9 +42,10 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
     // HA discovery still uses the common library (numeric endpoint IDs in HA config)
     if (m_haEnabled)
     {
+        QString uid = QString("%1_%2").arg(uniqueId(), device->address());
         device->publishExposes(this,
             device->address(),
-            QString("%1_%2").arg(uniqueId(), device->address()),
+            uid,
             m_haPrefix, true, m_haUpdate,
             m_devices->names(), remove);
     }

@@ -5,22 +5,31 @@
 static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
 
-// homed-web's exposeMeta() (js/expose.js) parses every objectId as a single
-// <word>_<index> token -- e.g. "temperature_1" -- for grouping/classification
-// across the whole dashboard, not just this service. ESPHome's own device_class
-// values can be multi-word snake_case (e.g. "signal_strength", "carbon_dioxide"),
-// which would otherwise defeat that parsing the same way a multi-word objectId
-// did. Collapse any such wire string into a single camelCase token before it
-// ever becomes (part of) an objectId.
-static QString camelCase(const QString &snake)
+// homed-web's exposeMeta() (js/expose.js) parses every objectId as
+// expose.split('_'), taking list[0] as the display name and list[1] (if
+// numeric) as a disambiguating suffix appended back onto the title. An
+// objectId with *any* underscore in it trips that parsing -- multi-word
+// names get truncated to their first word, and a numeric second word gets
+// silently appended to the title. Zero underscores sidesteps both: split('_')
+// then returns a single-element array, so list[0] is the whole string and
+// list[1] is undefined. Collapses any separator (spaces in a human name,
+// underscores in a wire device_class like "signal_strength") into a single
+// camelCase token -- no underscores, ever.
+static QString camelCase(const QString &text)
 {
-    QStringList parts = snake.split('_', Qt::SkipEmptyParts);
     QString result;
+    bool capitalizeNext = false;
 
-    for (int i = 0; i < parts.count(); i++)
+    for (const QChar &c : text)
     {
-        QString part = parts.at(i).toLower();
-        result += i == 0 ? part : part.left(1).toUpper() + part.mid(1);
+        if (!c.isLetterOrNumber())
+        {
+            capitalizeNext = true;
+            continue;
+        }
+
+        result.append(capitalizeNext && !result.isEmpty() ? c.toUpper() : c.toLower());
+        capitalizeNext = false;
     }
 
     return result;
@@ -480,23 +489,23 @@ void EspHomeDevice::applyDiscoveredEntities(void)
     m_device->endpoints().clear();
     m_device->options().clear();
 
-    // objectId is <token>_<index>, never derived from the entity's human name --
-    // homed-web's exposeMeta() (js/expose.js) parses every objectId this way for
-    // dashboard grouping, and needs token to be a single camelCase word (see
-    // camelCase() above). token is the entity's device_class when ESPHome sends
-    // one (e.g. "temperature"), falling back to its HOMEd type (e.g. "sensor")
-    // otherwise; index disambiguates multiple entities that land on the same
-    // token on one device (three "temperature" sensors -> _1/_2/_3).
-    QMap<QString, int> tokenSeen;
+    // objectId is a single camelCase token, no underscores -- see camelCase()
+    // above for why. Built from the entity's own name (e.g. "Back Side
+    // Temperature" -> "backSideTemperature"), falling back to its device_class
+    // or HOMEd type only when the name is empty. A numeric suffix (no
+    // separator, so it doesn't reintroduce an underscore) is appended only on
+    // an actual collision -- distinctly-named entities never get one, so
+    // titles never get a stray digit appended by homed-web's title fallback.
+    QMap<QString, int> objectIdCount;
     QStringList objectIds;
 
     for (const auto &info : m_pendingEntities)
     {
-        QString token = camelCase(info.deviceClass.isEmpty() ? info.type : info.deviceClass);
-        int index = tokenSeen.value(token, 0) + 1;
+        QString base = camelCase(!info.name.isEmpty() ? info.name : (!info.deviceClass.isEmpty() ? info.deviceClass : info.type));
+        int count = objectIdCount.value(base, 0) + 1;
 
-        tokenSeen.insert(token, index);
-        objectIds.append(QString("%1_%2").arg(token).arg(index));
+        objectIdCount.insert(base, count);
+        objectIds.append(count > 1 ? QString("%1%2").arg(base).arg(count) : base);
     }
 
     for (int i = 0; i < m_pendingEntities.count(); i++)
