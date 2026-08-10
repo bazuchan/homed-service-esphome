@@ -100,7 +100,16 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
             if (entityType == "light")
             {
                 QVariant lightOpt = device->options().value("light");
-                if (lightOpt.isValid()) options.insert("light", lightOpt);
+
+                // LightObject's expose name is hardcoded "light" (homed-common),
+                // so items.first() above is always "light" too -- the title we
+                // just inserted under that same key would get clobbered here.
+                // Only overwrite when there's an actual (non-empty) capability
+                // list, so a plain on/off light (no brightness/color/temp, where
+                // this is empty) keeps its title instead of losing it.
+                if (lightOpt.isValid() && !lightOpt.toStringList().isEmpty())
+                    options.insert("light", lightOpt);
+
                 QVariant ctOpt = device->options().value("colorTemperature");
                 if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
             }

@@ -551,6 +551,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "light")
         {
             auto expose = QSharedPointer<LightObject>::create();
+            m_device->options().insert(objectId, QVariantMap {{"title", title}});
             m_device->options().insert("light", info.lightOptions);
             if (info.minMireds > 0 || info.maxMireds > 0)
                 m_device->options().insert("colorTemperature",
