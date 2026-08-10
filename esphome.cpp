@@ -1,6 +1,7 @@
 #include "esphome.h"
 #include "logger.h"
 #include <QDateTime>
+#include <cmath>
 
 static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
@@ -518,6 +519,8 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         ep->meta().insert("key", info.key);
         ep->meta().insert("type", info.type);
         ep->meta().insert("objectId", objectId);
+        if (info.accuracyDecimals > 0)
+            ep->meta().insert("round", info.accuracyDecimals);
 
         QString title = info.name.isEmpty() ? objectId : info.name;
 
@@ -675,6 +678,16 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
 
     QString objectId = ep->meta().value("objectId").toString();
     QString entityType = ep->meta().value("type").toString();
+
+    // Honor the sensor's accuracy_decimals (published as the "round" option in
+    // applyDiscoveredEntities) on the value itself, not just as a display hint --
+    // ESPHome sends full float precision on every state update regardless.
+    if (type == MsgType::StateSensor && state.contains("_state") && ep->meta().contains("round"))
+    {
+        int decimals = ep->meta().value("round").toInt();
+        double factor = std::pow(10, decimals);
+        state.insert("_state", std::round(state.value("_state").toDouble() * factor) / factor);
+    }
 
     // Handle RGB light: combine r,g,b into color array
     if (type == MsgType::StateLight && state.contains("_r"))
