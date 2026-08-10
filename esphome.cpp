@@ -5,6 +5,36 @@
 static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
 
+// Newer ESPHome versions no longer send object_id over the wire (it's empty
+// in ListEntitiesXxxResponse) and expect clients to derive it from the
+// entity's name instead -- same algorithm ESPHome's own firmware used to
+// apply before sending it: lowercase, non-alphanumeric runs collapse to a
+// single underscore, no leading/trailing underscore.
+static QString slugify(const QString &name)
+{
+    QString result;
+    bool lastUnderscore = false;
+
+    for (const QChar &c : name)
+    {
+        if (c.isLetterOrNumber())
+        {
+            result.append(c.toLower());
+            lastUnderscore = false;
+        }
+        else if (!lastUnderscore && !result.isEmpty())
+        {
+            result.append('_');
+            lastUnderscore = true;
+        }
+    }
+
+    while (result.endsWith('_'))
+        result.chop(1);
+
+    return result;
+}
+
 // ==================== EspHomeDevice ====================
 
 EspHomeDevice::EspHomeDevice(const Device &device, QObject *parent)
@@ -351,6 +381,8 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
     auto fields = ProtoDecoder::decode(payload);
     EntityInfo info = {};
 
+    logInfo << m_device << "received entity info message type" << type << "payload size" << payload.size() << "(" << fields.count() << "fields)";
+
     for (const auto &f : fields)
     {
         if (f.field() == 3 && f.wireType() == 2) { info.name = f.string(); continue; }
@@ -438,8 +470,14 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
         }
     }
 
+    if (info.objectId.isEmpty())
+        info.objectId = slugify(info.name);
+
     if (info.key == 0 || info.objectId.isEmpty())
+    {
+        logWarning << m_device << "ignoring entity of type" << type << "with key" << info.key << "and objectId" << info.objectId << "(" << fields.count() << "fields decoded)";
         return;
+    }
 
     switch (type)
     {

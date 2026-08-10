@@ -9,3 +9,5 @@ moc_*
 *.deb
 *.ipk
 *.changes
+/tools/Makefile
+/tools/esphome-debug-client
