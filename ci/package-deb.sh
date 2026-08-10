@@ -27,14 +27,17 @@ ARCHITECTURE="$(echo "$TARGET" | jq -r '.architecture')"
 PACKAGE="homed-service-esphome_${VERSION}_${ARCHITECTURE}"
 STAGING="$(mktemp -d)"
 
+# Anything already sitting under deploy/data (config, but also static assets
+# shipped for other services -- e.g. deploy/data/usr/share/homed-web/js/services
+# is homed-web plugin JS that belongs in *this* package) rides along as-is.
+cp -a "$REPO_DIR/deploy/data/." "$STAGING/"
+
 mkdir -p "$STAGING/DEBIAN"
 mkdir -p "$STAGING/usr/bin"
-mkdir -p "$STAGING/etc/homed"
 mkdir -p "$STAGING/opt/homed-esphome"
 mkdir -p "$STAGING/lib/systemd/system"
 
 cp "$BINARY" "$STAGING/usr/bin/homed-esphome"
-cp "$REPO_DIR/deploy/data/etc/homed/homed-esphome.conf" "$STAGING/etc/homed/"
 cp "$REPO_DIR/deploy/systemd/homed-esphome.service" "$STAGING/lib/systemd/system/"
 
 sed "s/^Version:.*/Version: ${VERSION}/; s/^Architecture:.*/Architecture: ${ARCHITECTURE}/" \

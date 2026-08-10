@@ -42,11 +42,15 @@ CONTROL="$STAGING/control"
 
 mkdir -p "$DATA" "$CONTROL"
 
+# Anything already sitting under deploy/data (config, but also static assets
+# shipped for other services -- e.g. deploy/data/usr/share/homed-web/js/services
+# is homed-web plugin JS that belongs in *this* package) rides along as-is.
+cp -a "$REPO_DIR/deploy/data/." "$DATA/"
+
 if [ "$FLAVOR" = "openwrt" ]; then
-    mkdir -p "$DATA/etc/init.d" "$DATA/etc/homed" "$DATA/usr/bin" "$DATA/opt/homed-esphome"
+    mkdir -p "$DATA/etc/init.d" "$DATA/usr/bin" "$DATA/opt/homed-esphome"
     cp "$BINARY" "$DATA/usr/bin/homed-esphome"
     cp "$REPO_DIR/deploy/procd/homed-esphome" "$DATA/etc/init.d/homed-esphome"
-    cp "$REPO_DIR/deploy/data/etc/homed/homed-esphome.conf" "$DATA/etc/homed/homed-esphome.conf"
     chmod +x "$DATA/etc/init.d/homed-esphome"
 
     cp "$REPO_DIR/deploy/opkg/conffiles" "$CONTROL/conffiles"
@@ -57,15 +61,27 @@ if [ "$FLAVOR" = "openwrt" ]; then
         "$REPO_DIR/deploy/opkg/control" > "$CONTROL/control"
 else
     # Entware/Keenetic: everything lives under /opt, matching homed-common's
-    # .deploy_entware job (same /opt/<name> -> /opt/var/lib/<name>,
-    # /var/log -> /opt/var/log config rewrite).
-    mkdir -p "$DATA/opt/etc/init.d" "$DATA/opt/etc/homed" "$DATA/opt/bin" "$DATA/opt/var/lib/homed-esphome"
+    # .deploy_entware job -- /etc/homed/<conf> -> /opt/etc/homed (with the conf's
+    # own /opt/<name> -> /opt/var/lib/<name> and /var/log -> /opt/var/log paths
+    # rewritten), and /usr/share/* -> /opt/share/* wholesale (not just this
+    # package's own name) so shared web assets land at the same final path
+    # regardless of which service's package installs them -- matching wherever
+    # homed-web's own Entware package puts its assets.
+    if [ -f "$DATA/etc/homed/homed-esphome.conf" ]; then
+        mkdir -p "$DATA/opt/etc/homed"
+        sed -e "s+/opt/homed-esphome+/opt/var/lib/homed-esphome+g" -e "s+/var/log+/opt/var/log+g" \
+            "$DATA/etc/homed/homed-esphome.conf" > "$DATA/opt/etc/homed/homed-esphome.conf"
+    fi
+    if [ -d "$DATA/usr/share" ] && [ -n "$(ls -A "$DATA/usr/share")" ]; then
+        mkdir -p "$DATA/opt/share"
+        mv "$DATA/usr/share/"* "$DATA/opt/share/"
+    fi
+    rm -rf "$DATA/etc" "$DATA/usr"
+
+    mkdir -p "$DATA/opt/etc/init.d" "$DATA/opt/bin" "$DATA/opt/var/lib/homed-esphome"
     cp "$BINARY" "$DATA/opt/bin/homed-esphome"
     cp "$REPO_DIR/deploy/entware/S88homed-esphome" "$DATA/opt/etc/init.d/S88homed-esphome"
     chmod +x "$DATA/opt/etc/init.d/S88homed-esphome"
-
-    sed -e "s+/opt/homed-esphome+/opt/var/lib/homed-esphome+g" -e "s+/var/log+/opt/var/log+g" \
-        "$REPO_DIR/deploy/data/etc/homed/homed-esphome.conf" > "$DATA/opt/etc/homed/homed-esphome.conf"
 
     cp "$REPO_DIR/deploy/entware/conffiles" "$CONTROL/conffiles"
     sed "s/^Version:.*/Version: ${VERSION}/; s/^Architecture:.*/Architecture: ${ARCHITECTURE}/" \
