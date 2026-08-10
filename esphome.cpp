@@ -234,7 +234,7 @@ void EspHomeDevice::onReadyRead(void)
             ProtoEncoder hello;
             hello.addString(1, "homed-esphome");
             hello.addVarint(2, 1); // api_version_major
-            hello.addVarint(3, 10); // api_version_minor
+            hello.addVarint(3, 14); // api_version_minor
             sendMessage(MsgType::HelloRequest, hello.data());
         }
         else if (m_state == State::Ready || m_state == State::ListEntities || m_state == State::Subscribe)

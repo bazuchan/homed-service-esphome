@@ -312,8 +312,8 @@ int main(int argc, char *argv[])
 
     ProtoEncoder hello;
     hello.addString(1, "esphome-debug-client");
-    hello.addVarint(2, 1);
-    hello.addVarint(3, 10);
+    hello.addVarint(2, 1); // api_version_major
+    hello.addVarint(3, 14); // api_version_minor
     sendMessage(socket, noise, 1 /* HelloRequest */, hello.data());
 
     int sensorCount = 0, listEntitiesTotal = 0, stateCount = 0;
