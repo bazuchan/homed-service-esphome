@@ -3,6 +3,13 @@
 
 #define STORE_DATABASE_DELAY    20
 
+// Overridable at build time via qmake DEFINES (see homed-esphome.pro), which
+// ci/build.sh sets from the release tag -- this fallback is only for local
+// dev builds run without a version.
+#ifndef SERVICE_VERSION
+#define SERVICE_VERSION "0.1.0"
+#endif
+
 #include <QDateTime>
 #include <QFile>
 #include <QSettings>

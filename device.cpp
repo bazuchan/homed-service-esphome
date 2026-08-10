@@ -297,7 +297,7 @@ void DeviceList::writeDatabase(void)
     QJsonObject json;
     json.insert("devices", serialize());
     json.insert("timestamp", static_cast<double>(QDateTime::currentSecsSinceEpoch()));
-    json.insert("version", "0.1.0");
+    json.insert("version", SERVICE_VERSION);
 
     QJsonDocument doc(json);
     QByteArray data = doc.toJson(QJsonDocument::Compact);

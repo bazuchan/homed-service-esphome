@@ -1,14 +1,18 @@
 #!/bin/sh
 # Builds homed-esphome for a single target from ci/targets.json.
-# Usage: ci/build.sh <target-id>
+# Usage: ci/build.sh <target-id> [version]
 # Output: <repo-root>/homed-esphome-<target-id>
 set -e
 
 TARGET_ID="$1"
 if [ -z "$TARGET_ID" ]; then
-    echo "usage: $0 <target-id>" >&2
+    echo "usage: $0 <target-id> [version]" >&2
     exit 1
 fi
+
+# Stamped into the binary as SERVICE_VERSION (see homed-esphome.pro); falls
+# back to device.h's default if not given, same as package-*.sh's own default.
+export SERVICE_VERSION="${2:-0.1.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -75,6 +79,7 @@ case "$TOOLCHAIN" in
         # this: their Qt builds are ICU-free (self-contained embedded builds).
         IMAGE="${TOOLCHAIN#docker:}"
         docker run --rm -u "$(id -u):$(id -g)" \
+            -e SERVICE_VERSION \
             -v "$QT_DIR":/opt/qt-target:ro \
             -v "$REPO_DIR/..":/build \
             -w "/build/$(basename "$REPO_DIR")" \

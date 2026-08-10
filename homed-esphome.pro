@@ -20,6 +20,12 @@ QT += network
 
 QMAKE_CXXFLAGS += -Wno-deprecated-declarations
 
+# Stamps the release tag into the binary (device.h's SERVICE_VERSION fallback
+# otherwise applies). Set by ci/build.sh; for local dev builds, either export
+# SERVICE_VERSION yourself or leave it unset to keep the fallback.
+SERVICE_VERSION_ENV = $$(SERVICE_VERSION)
+!isEmpty(SERVICE_VERSION_ENV): DEFINES += SERVICE_VERSION=\\\"$$SERVICE_VERSION_ENV\\\"
+
 # noise-c (esphome-libs/noise-c, esp-port branch) — vendored, reference backend only,
 # no external crypto dependency (see noise.cpp for the protocol it implements)
 NOISE_C_DIR = noise-c

@@ -37,7 +37,7 @@ jobs:
           key: homed-toolchains-${{ matrix.target }}-${{ hashFiles('ci/targets.json') }}
 
       - name: Build
-        run: ci/build.sh "${{ matrix.target }}"
+        run: ci/build.sh "${{ matrix.target }}" "${GITHUB_REF_NAME}"
 
       - name: Package
         run: |
