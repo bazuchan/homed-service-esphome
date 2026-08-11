@@ -576,13 +576,14 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "select")
         {
             auto expose = QSharedPointer<SelectObject>::create(objectId);
-            m_device->options().insert(objectId, QVariantMap {{"enum", info.selectOptions}, {"control", true}, {"title", title}});
+            m_device->options().insert(objectId, QVariantMap {{"type", "select"}, {"enum", info.selectOptions}, {"control", true}, {"title", title}});
             ep->exposes().append(expose);
         }
         else if (info.type == "number")
         {
             auto expose = QSharedPointer<NumberObject>::create(objectId);
             QVariantMap opts;
+            opts.insert("type", "number");
             opts.insert("min", static_cast<double>(info.minValue));
             opts.insert("max", static_cast<double>(info.maxValue));
             opts.insert("step", static_cast<double>(info.step > 0 ? info.step : 1.0f));
