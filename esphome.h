@@ -99,6 +99,7 @@ private:
         quint32 key;
         QString type;
         QString name;
+        QString icon;
         QString deviceClass;
         QString unit;
         QString stateClass;

@@ -504,12 +504,14 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
         {
             case MsgType::ListEntitiesSwitch:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 9 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
             case MsgType::ListEntitiesBinary:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.deviceClass = f.string();
+                else if (f.field() == 8 && f.wireType() == 2) info.icon = f.string();
                 break;
 
             case MsgType::ListEntitiesCover:
@@ -517,6 +519,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 6 && f.wireType() == 0) info.supportsPosition = f.boolean();
                 else if (f.field() == 7 && f.wireType() == 0) info.supportsTilt = f.boolean();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
+                else if (f.field() == 10 && f.wireType() == 2) info.icon = f.string();
                 break;
 
             case MsgType::ListEntitiesSensor:
@@ -524,6 +527,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 // field 5 is icon, not device_class (that's field 9 below) --
                 // unlike binary_sensor/switch/text_sensor/button, where 5/8/9
                 // really is device_class depending on the message.
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 6 && f.wireType() == 2) info.unit = f.string();
                 else if (f.field() == 7 && f.wireType() == 0) info.accuracyDecimals = static_cast<int>(f.varint());
                 else if (f.field() == 9 && f.wireType() == 2) info.deviceClass = f.string();
@@ -541,6 +545,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
 
             case MsgType::ListEntitiesTextSensor:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
@@ -548,6 +553,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 9 && f.wireType() == 5) info.minMireds = f.floatVal();
                 else if (f.field() == 10 && f.wireType() == 5) info.maxMireds = f.floatVal();
+                else if (f.field() == 14 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 12 && f.wireType() == 0)
                 {
                     // supported_color_modes: determine light capabilities
@@ -566,6 +572,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
 
             case MsgType::ListEntitiesClimate:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 19 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 7 && f.wireType() == 0)
                 {
                     QString mode = climateModeName(f.varint());
@@ -591,11 +598,13 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
 
             case MsgType::ListEntitiesSelect:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 6 && f.wireType() == 2) info.selectOptions.append(f.string());
                 break;
 
             case MsgType::ListEntitiesNumber:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 6 && f.wireType() == 5) info.minValue = f.floatVal();
                 else if (f.field() == 7 && f.wireType() == 5) info.maxValue = f.floatVal();
                 else if (f.field() == 8 && f.wireType() == 5) info.step = f.floatVal();
@@ -604,6 +613,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
 
             case MsgType::ListEntitiesButton:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
         }
@@ -669,6 +679,8 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         ep->meta().insert("objectId", objectId);
         if (info.accuracyDecimals > 0)
             ep->meta().insert("round", info.accuracyDecimals);
+        if (!info.icon.isEmpty())
+            ep->meta().insert("icon", info.icon);
 
         QString title = info.name.isEmpty() ? objectId : info.name;
 

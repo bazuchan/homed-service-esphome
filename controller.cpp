@@ -199,12 +199,22 @@ void Controller::publishHaDiscovery(DeviceObject *device, const QString &devTopi
                 expose->setStateTopic(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), devTopic, objectId));
                 expose->setCommandTopic(mqttTopic("td/%1/%2/%3").arg(serviceTopic(), devTopic, objectId));
 
+                QString icon = ep->meta().value("icon").toString();
+
                 json = expose->request();
                 json.insert("availability", availability);
                 json.insert("availability_mode", "all");
                 json.insert("device", identity);
                 json.insert("name", expose->title());
                 json.insert("unique_id", QString("%1_%2").arg(nodeId, objectId));
+                // Built directly from ep->meta() (populated at discovery time
+                // straight from ESPHome's own icon field) rather than through
+                // ExposeObject's option()/request() -- unlike title, icon has
+                // no homed-common-native slot to collide with at all, so no
+                // need to route it through that mechanism the way title/class
+                // sometimes have to.
+                if (!icon.isEmpty())
+                    json.insert("icon", icon);
             }
 
             mqttPublish(configTopic, json, true);
