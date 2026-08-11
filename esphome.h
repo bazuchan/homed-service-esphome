@@ -20,6 +20,7 @@ namespace MsgType {
     static const quint16 DeviceInfoResponse      = 10;
     static const quint16 ListEntitiesRequest     = 11;
     static const quint16 ListEntitiesBinary      = 12;
+    static const quint16 ListEntitiesCover       = 13;
     static const quint16 ListEntitiesLight       = 15;
     static const quint16 ListEntitiesSensor      = 16;
     static const quint16 ListEntitiesSwitch      = 17;
@@ -27,17 +28,22 @@ namespace MsgType {
     static const quint16 ListEntitiesDone        = 19;
     static const quint16 SubscribeStates         = 20;
     static const quint16 StateBinary             = 21;
+    static const quint16 StateCover              = 22;
     static const quint16 StateLight              = 24;
     static const quint16 StateSensor             = 25;
     static const quint16 StateSwitch             = 26;
     static const quint16 StateTextSensor         = 27;
-    static const quint16 ListEntitiesNumber      = 49;
-    static const quint16 StateNumber             = 50;
-    static const quint16 ListEntitiesSelect      = 52;
-    static const quint16 StateSelect             = 53;
+    static const quint16 CoverCommand           = 30;
     static const quint16 LightCommand           = 32;
     static const quint16 SwitchCommand          = 33;
+    static const quint16 ListEntitiesClimate     = 46;
+    static const quint16 StateClimate            = 47;
+    static const quint16 ClimateCommand         = 48;
+    static const quint16 ListEntitiesNumber      = 49;
+    static const quint16 StateNumber             = 50;
     static const quint16 NumberCommand          = 51;
+    static const quint16 ListEntitiesSelect      = 52;
+    static const quint16 StateSelect             = 53;
     static const quint16 SelectCommand          = 54;
     static const quint16 ListEntitiesButton      = 61;
     static const quint16 ButtonCommand          = 62;
@@ -76,12 +82,13 @@ private slots:
     void onError(QAbstractSocket::SocketError error);
     void onPingTimer(void);
     void onReconnectTimer(void);
+    void onHandshakeTimer(void);
 
 private:
 
     Device m_device;
     QTcpSocket *m_socket;
-    QTimer *m_pingTimer, *m_reconnectTimer;
+    QTimer *m_pingTimer, *m_reconnectTimer, *m_handshakeTimer;
     State m_state;
     NoiseNNpsk0 *m_noise;
     QByteArray m_rxBuf; // accumulates TCP stream data
@@ -100,6 +107,9 @@ private:
         QStringList selectOptions;
         QStringList lightOptions;
         float minMireds, maxMireds;
+        bool supportsPosition, supportsTilt; // cover
+        QStringList climateModes, climateFanModes, climatePresets; // climate
+        bool climateSupportsAction; // climate
     };
     QList<EntityInfo> m_pendingEntities;
 

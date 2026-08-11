@@ -52,8 +52,12 @@ Send to `homed/td/esphome/<device>/<endpointId>`:
 |-------------|-----------------|
 | `switch` | `{"status": "on"}` / `{"status": "off"}` / `{"status": "toggle"}` |
 | `light` | `{"status": "on"}`, `{"level": 128}`, `{"color": [255, 0, 0]}`, `{"colorTemperature": 370}` |
+| `cover` | `{"cover": "open"}` / `{"cover": "close"}` / `{"cover": "stop"}`, `{"position": 50}` |
+| `climate` | `{"systemMode": "heat"}`, `{"targetTemperature": 21.5}`, `{"fanMode": "auto"}`, `{"operationMode": "eco"}` |
 | `select` | `{"<objectId>": "option name"}` |
 | `number` | `{"<objectId>": 42.5}` |
 | `button` | `{"<objectId>": true}` |
+
+`systemMode` values: `off`, `heat`, `cool`, `heat_cool`, `dry`, `auto`, `fan` (ESPHome's `FAN_ONLY` mode — not `fan_only`, that's only used in Home Assistant's own UI). `fanMode`/`operationMode` accept either one of ESPHome's standard tokens (`fanMode`: `on`, `off`, `auto`, `low`, `medium`, `high`, `middle`, `focus`, `diffuse`, `quiet`; `operationMode`: `none`, `home`, `away`, `boost`, `comfort`, `eco`, `sleep`, `activity`) or any custom fan mode/preset name the device itself advertises.
 
 Entity states are published to `homed/fd/esphome/<device>/<endpointId>`.

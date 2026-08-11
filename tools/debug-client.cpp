@@ -59,6 +59,8 @@ static const char *msgTypeName(quint16 type)
         case 25: return "SensorStateResponse";
         case 26: return "SwitchStateResponse";
         case 27: return "TextSensorStateResponse";
+        case 46: return "ListEntitiesClimateResponse";
+        case 47: return "ClimateStateResponse";
         case 49: return "ListEntitiesNumberResponse";
         case 50: return "NumberStateResponse";
         case 52: return "ListEntitiesSelectResponse";
@@ -366,7 +368,7 @@ int main(int argc, char *argv[])
                 listEntitiesTotal++;
                 break;
 
-            case 12: case 15: case 17: case 18: case 49: case 52: case 61:
+            case 12: case 13: case 15: case 17: case 18: case 46: case 49: case 52: case 61:
                 listEntitiesTotal++;
                 break;
 
@@ -377,7 +379,7 @@ int main(int argc, char *argv[])
                 subscribed = true;
                 break;
 
-            case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 50: case 53:
+            case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 47: case 50: case 53:
                 stateCount++;
                 break;
 

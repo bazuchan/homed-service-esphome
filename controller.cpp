@@ -105,14 +105,33 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                 // on a shared "light"/"colorTemperature" key) -- but the output
                 // key stays plain "light"/"colorTemperature", since that's what
                 // homed-web's expose.js expects for this endpoint's own options.
-                // Title is intentionally not published here at all -- it lives
-                // under "light_<endpointId>" (see esphome.cpp) for
-                // ExposeObject::title()'s HA-discovery lookup instead.
+                // Title is intentionally not published here at all -- light's
+                // "light"/"light_<endpointId>" key is capabilities-only (see
+                // esphome.cpp), so light entities always keep the generic
+                // auto-humanized "Light" HA-discovery name.
                 QVariant lightOpt = device->options().value(objectId + "_light");
                 options.insert("light", lightOpt.isValid() ? lightOpt : QVariant(QVariantList()));
 
                 QVariant ctOpt = device->options().value(objectId + "_colorTemperature");
                 if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
+            }
+            else if (entityType == "climate")
+            {
+                // homed-web's exposeList() reads these as flat sibling keys in
+                // this endpoint's own options (not nested under "thermostat"),
+                // conditionally including each in the rendered card only when
+                // present -- so devices without e.g. a preset/fan mode just
+                // omit that key rather than publishing an empty one. Same
+                // "<name>_<endpointId>" keys esphome.cpp wrote for
+                // ThermostatObject's own option() calls (HA discovery), reused
+                // here for the web UI's copy of the same data.
+                static const QList<QString> climateKeys = {"systemMode", "operationMode", "fanMode", "targetTemperature", "runningStatus"};
+                for (const auto &key : climateKeys)
+                {
+                    QVariant opt = device->options().value(QString("%1_%2").arg(key).arg(it.key()));
+                    if (opt.isValid())
+                        options.insert(key, opt);
+                }
             }
             else
             {

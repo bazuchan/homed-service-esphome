@@ -10,12 +10,16 @@ Devices are added and removed at runtime via MQTT commands. On each connection t
 |-----------------|---------------------------------------------------|
 | `switch`        | On/off control, reports `status` (on/off)        |
 | `binary_sensor` | Read-only boolean sensor (motion, contact, etc.) |
+| `cover`         | Open/close/stop, position (if supported by the device) |
 | `sensor`        | Numeric sensor (temperature, humidity, etc.)     |
 | `text_sensor`   | String-valued sensor                             |
 | `light`         | On/off, brightness, RGB color, color temperature |
+| `climate`       | Mode, target temperature, fan mode, preset       |
 | `select`        | Dropdown selection with enumerated options       |
 | `number`        | Numeric input with min/max/step constraints      |
 | `button`        | Momentary trigger (press only)                   |
+
+`cover` and `climate` entities without native ESPHome support for a given feature (e.g. tilt, dual-point target temperature, swing mode) fall back to sane defaults rather than being exposed — see the inline comments in `esphome.cpp` for exactly what's covered.
 
 ## MQTT commands
 

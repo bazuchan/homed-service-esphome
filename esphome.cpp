@@ -5,6 +5,7 @@
 
 static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
+static const int HANDSHAKE_TIMEOUT  = 15000;  // 15 seconds -- TCP connects but the device never completes (or never starts) the ESPHome handshake
 
 // homed-web's exposeMeta() (js/expose.js) parses every objectId as
 // expose.split('_'), taking list[0] as the display name and list[1] (if
@@ -36,6 +37,89 @@ static QString camelCase(const QString &text)
     return result;
 }
 
+// ClimateMode (api.proto). FAN_ONLY maps to "fan", not "fan_only" -- that's
+// the token homed-common's ThermostatObject stores internally, translating
+// to/from HA's "fan_only" only in its own HA discovery templates.
+static QString climateModeName(quint64 value)
+{
+    switch (value)
+    {
+        case 0: return "off";
+        case 1: return "heat_cool";
+        case 2: return "cool";
+        case 3: return "heat";
+        case 4: return "fan";
+        case 5: return "dry";
+        case 6: return "auto";
+        default: return QString();
+    }
+}
+
+// ClimateFanMode (api.proto)
+static QString climateFanModeName(quint64 value)
+{
+    switch (value)
+    {
+        case 0: return "on";
+        case 1: return "off";
+        case 2: return "auto";
+        case 3: return "low";
+        case 4: return "medium";
+        case 5: return "high";
+        case 6: return "middle";
+        case 7: return "focus";
+        case 8: return "diffuse";
+        case 9: return "quiet";
+        default: return QString();
+    }
+}
+
+// ClimatePreset (api.proto)
+static QString climatePresetName(quint64 value)
+{
+    switch (value)
+    {
+        case 0: return "none";
+        case 1: return "home";
+        case 2: return "away";
+        case 3: return "boost";
+        case 4: return "comfort";
+        case 5: return "eco";
+        case 6: return "sleep";
+        case 7: return "activity";
+        default: return QString();
+    }
+}
+
+// ClimateAction (api.proto) -- collapsed to the single "running" boolean
+// homed-common's ThermostatObject action_template expects; anything other
+// than idle/off counts as actively running.
+static bool climateActionRunning(quint64 value)
+{
+    return value != 0 && value != 4;
+}
+
+// Reverse of climateModeName()/climateFanModeName()/climatePresetName() --
+// -1 (found=false) when the value isn't one of the standard tokens (a custom
+// fan mode/preset name instead, sent back to the device as a string field).
+static int climateModeValue(const QString &name)
+{
+    static const QStringList names = {"off", "heat_cool", "cool", "heat", "fan", "dry", "auto"};
+    return names.indexOf(name);
+}
+
+static int climateFanModeValue(const QString &name)
+{
+    static const QStringList names = {"on", "off", "auto", "low", "medium", "high", "middle", "focus", "diffuse", "quiet"};
+    return names.indexOf(name);
+}
+
+static int climatePresetValue(const QString &name)
+{
+    static const QStringList names = {"none", "home", "away", "boost", "comfort", "eco", "sleep", "activity"};
+    return names.indexOf(name);
+}
+
 // ==================== EspHomeDevice ====================
 
 EspHomeDevice::EspHomeDevice(const Device &device, QObject *parent)
@@ -44,11 +128,14 @@ EspHomeDevice::EspHomeDevice(const Device &device, QObject *parent)
     m_socket = new QTcpSocket(this);
     m_pingTimer = new QTimer(this);
     m_reconnectTimer = new QTimer(this);
+    m_handshakeTimer = new QTimer(this);
 
     m_pingTimer->setInterval(PING_INTERVAL);
     m_pingTimer->setSingleShot(false);
     m_reconnectTimer->setInterval(RECONNECT_INTERVAL);
     m_reconnectTimer->setSingleShot(true);
+    m_handshakeTimer->setInterval(HANDSHAKE_TIMEOUT);
+    m_handshakeTimer->setSingleShot(true);
 
     connect(m_socket, &QTcpSocket::connected, this, &EspHomeDevice::onConnected);
     connect(m_socket, &QTcpSocket::disconnected, this, &EspHomeDevice::onDisconnected);
@@ -56,6 +143,7 @@ EspHomeDevice::EspHomeDevice(const Device &device, QObject *parent)
     connect(m_socket, &QAbstractSocket::errorOccurred, this, &EspHomeDevice::onError);
     connect(m_pingTimer, &QTimer::timeout, this, &EspHomeDevice::onPingTimer);
     connect(m_reconnectTimer, &QTimer::timeout, this, &EspHomeDevice::onReconnectTimer);
+    connect(m_handshakeTimer, &QTimer::timeout, this, &EspHomeDevice::onHandshakeTimer);
 }
 
 EspHomeDevice::~EspHomeDevice(void)
@@ -80,6 +168,7 @@ void EspHomeDevice::disconnectFromDevice(void)
 {
     m_pingTimer->stop();
     m_reconnectTimer->stop();
+    m_handshakeTimer->stop();
     m_state = State::Disconnected;
     m_socket->disconnectFromHost();
 }
@@ -88,6 +177,7 @@ void EspHomeDevice::onConnected(void)
 {
     logInfo << m_device << "TCP connected";
     m_state = State::ClientHello;
+    m_handshakeTimer->start();
 
     delete m_noise;
     m_noise = new NoiseNNpsk0(m_device->encryptionKey());
@@ -119,6 +209,7 @@ void EspHomeDevice::onDisconnected(void)
 {
     logInfo << m_device << "disconnected";
     m_pingTimer->stop();
+    m_handshakeTimer->stop();
     m_rxBuf.clear();
     m_noiseHandshakeState = 0;
 
@@ -154,6 +245,22 @@ void EspHomeDevice::onReconnectTimer(void)
 {
     m_state = State::Disconnected;
     connectToDevice();
+}
+
+void EspHomeDevice::onHandshakeTimer(void)
+{
+    // TCP connects fine but the device never sends anything (or hangs partway
+    // through the handshake) -- onDisconnected() only fires from the remote
+    // actually closing the connection or a socket-level error, neither of
+    // which happens on a silently-open-but-idle socket, so without this the
+    // connection (and its reconnectTimer) would just sit stuck forever.
+    // abort() (rather than disconnectFromHost()) is deliberate: a graceful
+    // close still depends on the same uncooperative peer responding, which is
+    // exactly what we're trying to escape. abort() tears the socket down
+    // immediately regardless, and still triggers onDisconnected() -> the
+    // normal m_reconnectTimer path.
+    logWarning << m_device << "handshake timed out after" << HANDSHAKE_TIMEOUT / 1000 << "s, reconnecting";
+    m_socket->abort();
 }
 
 void EspHomeDevice::onReadyRead(void)
@@ -225,6 +332,7 @@ void EspHomeDevice::onReadyRead(void)
 
             logInfo << m_device << "noise handshake complete";
             m_state = State::Ready;
+            m_handshakeTimer->stop();
             m_pingTimer->start();
 
             m_device->updateLastSeen();
@@ -335,10 +443,12 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
         }
 
         case MsgType::ListEntitiesBinary:
+        case MsgType::ListEntitiesCover:
         case MsgType::ListEntitiesLight:
         case MsgType::ListEntitiesSensor:
         case MsgType::ListEntitiesSwitch:
         case MsgType::ListEntitiesTextSensor:
+        case MsgType::ListEntitiesClimate:
         case MsgType::ListEntitiesNumber:
         case MsgType::ListEntitiesSelect:
         case MsgType::ListEntitiesButton:
@@ -353,10 +463,12 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
             break;
 
         case MsgType::StateBinary:
+        case MsgType::StateCover:
         case MsgType::StateLight:
         case MsgType::StateSensor:
         case MsgType::StateSwitch:
         case MsgType::StateTextSensor:
+        case MsgType::StateClimate:
         case MsgType::StateNumber:
         case MsgType::StateSelect:
             processStateUpdate(type, payload);
@@ -400,9 +512,18 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 5 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
+            case MsgType::ListEntitiesCover:
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 6 && f.wireType() == 0) info.supportsPosition = f.boolean();
+                else if (f.field() == 7 && f.wireType() == 0) info.supportsTilt = f.boolean();
+                else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
+                break;
+
             case MsgType::ListEntitiesSensor:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
-                else if (f.field() == 5 && f.wireType() == 2) info.deviceClass = f.string();
+                // field 5 is icon, not device_class (that's field 9 below) --
+                // unlike binary_sensor/switch/text_sensor/button, where 5/8/9
+                // really is device_class depending on the message.
                 else if (f.field() == 6 && f.wireType() == 2) info.unit = f.string();
                 else if (f.field() == 7 && f.wireType() == 0) info.accuracyDecimals = static_cast<int>(f.varint());
                 else if (f.field() == 9 && f.wireType() == 2) info.deviceClass = f.string();
@@ -443,6 +564,31 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 }
                 break;
 
+            case MsgType::ListEntitiesClimate:
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 7 && f.wireType() == 0)
+                {
+                    QString mode = climateModeName(f.varint());
+                    if (!mode.isEmpty() && !info.climateModes.contains(mode)) info.climateModes.append(mode);
+                }
+                else if (f.field() == 8 && f.wireType() == 5) info.minValue = f.floatVal();
+                else if (f.field() == 9 && f.wireType() == 5) info.maxValue = f.floatVal();
+                else if (f.field() == 10 && f.wireType() == 5) info.step = f.floatVal();
+                else if (f.field() == 12 && f.wireType() == 0) info.climateSupportsAction = f.boolean();
+                else if (f.field() == 13 && f.wireType() == 0)
+                {
+                    QString mode = climateFanModeName(f.varint());
+                    if (!mode.isEmpty() && !info.climateFanModes.contains(mode)) info.climateFanModes.append(mode);
+                }
+                else if (f.field() == 15 && f.wireType() == 2) info.climateFanModes.append(f.string());
+                else if (f.field() == 16 && f.wireType() == 0)
+                {
+                    QString preset = climatePresetName(f.varint());
+                    if (!preset.isEmpty() && !info.climatePresets.contains(preset)) info.climatePresets.append(preset);
+                }
+                else if (f.field() == 17 && f.wireType() == 2) info.climatePresets.append(f.string());
+                break;
+
             case MsgType::ListEntitiesSelect:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 6 && f.wireType() == 2) info.selectOptions.append(f.string());
@@ -473,9 +619,11 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
     {
         case MsgType::ListEntitiesSwitch:    info.type = "switch"; break;
         case MsgType::ListEntitiesBinary:    info.type = "binary_sensor"; break;
+        case MsgType::ListEntitiesCover:     info.type = "cover"; break;
         case MsgType::ListEntitiesSensor:    info.type = "sensor"; break;
         case MsgType::ListEntitiesTextSensor:info.type = "text_sensor"; break;
         case MsgType::ListEntitiesLight:     info.type = "light"; break;
+        case MsgType::ListEntitiesClimate:   info.type = "climate"; break;
         case MsgType::ListEntitiesSelect:    info.type = "select"; break;
         case MsgType::ListEntitiesNumber:    info.type = "number"; break;
         case MsgType::ListEntitiesButton:    info.type = "button"; break;
@@ -532,7 +680,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "binary_sensor")
         {
             auto expose = QSharedPointer<BinaryObject>::create(objectId);
-            QVariantMap opts = {{"title", title}};
+            QVariantMap opts = {{"type", "binary"}, {"title", title}};
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
             m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
@@ -540,7 +688,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "sensor" || info.type == "text_sensor")
         {
             auto expose = QSharedPointer<SensorObject>::create(objectId);
-            QVariantMap opts = {{"title", title}};
+            QVariantMap opts = {{"type", "sensor"}, {"title", title}};
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
             if (!info.stateClass.isEmpty()) opts.insert("state", info.stateClass);
@@ -552,34 +700,94 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         {
             auto expose = QSharedPointer<LightObject>::create();
 
-            // LightObject's expose name is hardcoded "light" (homed-common), so
-            // unlike every other type this can't key off objectId the same way.
-            // "light"/"colorTemperature" are what LightObject::request() itself
-            // reads via option() for HA discovery (m_name is always literal
-            // "light" there, so with >1 light on a device this pre-existing
-            // homed-common limitation still means HA only sees the
-            // last-discovered light's capabilities). The objectId-scoped copy
-            // is what our own Controller::publishExposes reads instead, so the
-            // web UI gets each light's real capabilities rather than the last
-            // light's clobbering the rest. Title deliberately does NOT go under
-            // "light"/objectId+"_light" -- that key must always stay a plain
-            // capabilities array (homed-web's exposeList() does .concat() on
-            // it), so a title map landing there for a plain on/off light used
-            // to silently break rendering. Instead, title goes under
-            // "light_<endpointId>", the numeric-endpoint-suffixed key
-            // AbstractMetaObject::option() checks first -- this is the same
-            // convention homed-service-matter uses for colorTemperature_<id>,
-            // and it's what ExposeObject::title() needs to give each light its
-            // own name in HA discovery instead of a generic "Light" for all.
-            m_device->options().insert(QString("light_%1").arg(endpointId), QVariantMap {{"title", title}});
+            // LightObject::request()/title() both resolve through
+            // AbstractMetaObject::option(), which for any *unnamed* lookup
+            // (m_name is hardcoded literal "light" for every light in
+            // homed-common) always checks "light_<endpointId>" (this
+            // endpoint's own numeric id) before falling back to plain
+            // "light" -- same convention homed-service-matter uses for
+            // light_<endpointId>/colorTemperature_<id>. That's the ONLY slot
+            // request() reads (as a QStringList, via option().toStringList()),
+            // so it's capabilities-only: there is no separate slot for a
+            // custom title independent of that value (a title map landing
+            // here instead would silently zero out capability detection, since
+            // .toStringList() on a map returns empty) -- light entities keep
+            // the generic auto-humanized "Light" HA discovery name, matching
+            // homed-service-matter's own light entities. The objectId-scoped
+            // copy is what our own Controller::publishExposes reads instead,
+            // so the web UI still gets each light's own real capabilities.
+            m_device->options().insert(QString("light_%1").arg(endpointId), info.lightOptions);
             m_device->options().insert("light", info.lightOptions);
             m_device->options().insert(objectId + "_light", info.lightOptions);
             if (info.minMireds > 0 || info.maxMireds > 0)
             {
                 QVariantMap colorTemperature {{"min", static_cast<int>(info.minMireds)}, {"max", static_cast<int>(info.maxMireds)}};
+                m_device->options().insert(QString("colorTemperature_%1").arg(endpointId), colorTemperature);
                 m_device->options().insert("colorTemperature", colorTemperature);
                 m_device->options().insert(objectId + "_colorTemperature", colorTemperature);
             }
+            ep->exposes().append(expose);
+        }
+        else if (info.type == "cover")
+        {
+            auto expose = QSharedPointer<CoverObject>::create();
+
+            // Same capabilities-only-slot situation as light above: CoverObject
+            // reads its device_class via a bare option().toString() call, which
+            // resolves "cover_<endpointId>" before "cover" -- storing a title
+            // map there instead would make .toString() return empty (device
+            // always falling back to "curtain"), so cover entities also keep
+            // the generic auto-humanized "Cover" HA discovery name. ESPHome's
+            // device_class covers many values (garage, shutter, blind, awning,
+            // etc); homed-common's CoverObject only distinguishes "blind" from
+            // everything else (defaulting the rest to "curtain"), so pass it
+            // through as-is and let that existing logic sort it out.
+            m_device->options().insert(QString("cover_%1").arg(endpointId), info.deviceClass);
+            m_device->options().insert("cover", info.deviceClass);
+            ep->meta().insert("supportsPosition", info.supportsPosition);
+            ep->exposes().append(expose);
+        }
+        else if (info.type == "climate")
+        {
+            auto expose = QSharedPointer<ThermostatObject>::create();
+
+            // Unlike light/cover, none of ThermostatObject::request()'s own
+            // option() calls read the "thermostat" key itself (they're all
+            // separately-named sub-fields -- systemMode/operationMode/fanMode/
+            // targetTemperature/runningStatus), so it's free for a title with
+            // no collision, and each sub-field gets its own automatic
+            // "<name>_<endpointId>" priority slot from AbstractMetaObject::
+            // option() the same way light's capabilities do.
+            m_device->options().insert(QString("thermostat_%1").arg(endpointId), QVariantMap {{"title", title}});
+
+            QVariantMap systemMode {{"enum", info.climateModes}};
+            m_device->options().insert(QString("systemMode_%1").arg(endpointId), systemMode);
+            m_device->options().insert("systemMode", systemMode);
+
+            if (!info.climatePresets.isEmpty())
+            {
+                QVariantMap operationMode {{"enum", info.climatePresets}};
+                m_device->options().insert(QString("operationMode_%1").arg(endpointId), operationMode);
+                m_device->options().insert("operationMode", operationMode);
+            }
+
+            if (!info.climateFanModes.isEmpty())
+            {
+                QVariantMap fanMode {{"enum", info.climateFanModes}};
+                m_device->options().insert(QString("fanMode_%1").arg(endpointId), fanMode);
+                m_device->options().insert("fanMode", fanMode);
+            }
+
+            QVariantMap targetTemperature {{"min", static_cast<double>(info.minValue)}, {"max", static_cast<double>(info.maxValue)}, {"step", static_cast<double>(info.step > 0 ? info.step : 0.5f)}};
+            m_device->options().insert(QString("targetTemperature_%1").arg(endpointId), targetTemperature);
+            m_device->options().insert("targetTemperature", targetTemperature);
+
+            m_device->options().insert(QString("runningStatus_%1").arg(endpointId), info.climateSupportsAction);
+            m_device->options().insert("runningStatus", info.climateSupportsAction);
+
+            ep->meta().insert("climateHasPreset", !info.climatePresets.isEmpty());
+            ep->meta().insert("climateHasFanMode", !info.climateFanModes.isEmpty());
+
             ep->exposes().append(expose);
         }
         else if (info.type == "select")
@@ -673,6 +881,32 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
                     state.insert("colorTemperature", static_cast<int>(f.floatVal()));
                 break;
 
+            case MsgType::StateCover:
+                if (f.field() == 2 && f.wireType() == 0)
+                    state.insert("_legacyState", f.varint());
+                else if (f.field() == 3 && f.wireType() == 5)
+                    state.insert("_position", static_cast<double>(f.floatVal()));
+                break;
+
+            case MsgType::StateClimate:
+                if (f.field() == 2 && f.wireType() == 0)
+                    state.insert("systemMode", climateModeName(f.varint()));
+                else if (f.field() == 3 && f.wireType() == 5)
+                    state.insert("temperature", static_cast<double>(f.floatVal()));
+                else if (f.field() == 4 && f.wireType() == 5)
+                    state.insert("targetTemperature", static_cast<double>(f.floatVal()));
+                else if (f.field() == 8 && f.wireType() == 0)
+                    state.insert("running", climateActionRunning(f.varint()));
+                else if (f.field() == 9 && f.wireType() == 0)
+                    state.insert("fanMode", climateFanModeName(f.varint()));
+                else if (f.field() == 11 && f.wireType() == 2 && !f.string().isEmpty())
+                    state.insert("fanMode", f.string()); // custom_fan_mode overrides the enum above
+                else if (f.field() == 12 && f.wireType() == 0)
+                    state.insert("operationMode", climatePresetName(f.varint()));
+                else if (f.field() == 13 && f.wireType() == 2 && !f.string().isEmpty())
+                    state.insert("operationMode", f.string()); // custom_preset overrides
+                break;
+
             case MsgType::StateSelect:
                 if (f.field() == 2 && f.wireType() == 2)
                     state.insert("_state", f.string());
@@ -688,13 +922,21 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     if (key == 0)
         return;
 
-    // Proto3 omits default (false) bool values — supply the "off" default explicitly
+    // Proto3 omits default (false/zero-enum) values — supply the explicit
+    // zero-value default (matches each field's own enum ordering above)
     if (type == MsgType::StateSwitch && !state.contains("status"))
         state.insert("status", "off");
     else if (type == MsgType::StateBinary && !state.contains("_state"))
         state.insert("_state", false);
     else if (type == MsgType::StateLight && !state.contains("status"))
         state.insert("status", "off");
+    else if (type == MsgType::StateClimate)
+    {
+        if (!state.contains("systemMode"))
+            state.insert("systemMode", "off");
+        if (!state.contains("running"))
+            state.insert("running", false);
+    }
 
     // Find endpoint by key
     quint8 endpointId = endpointByKey(key);
@@ -729,6 +971,48 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
         state.remove("_g");
         state.remove("_b");
         state.insert("color", color);
+    }
+
+    // Cover: derive open/closed + a 0-100 position from whichever field the
+    // device actually reports. supports_position devices send a real 0.0-1.0
+    // position; others only send the deprecated legacy_state (0=open,
+    // 1=closed, proto3-omitted -- i.e. defaults to open -- like every other
+    // zero-value default above), so synthesize a position from that instead,
+    // both so the web UI's position slider still has something sane to show
+    // and so open/close via the slider's extremes still works either way.
+    if (type == MsgType::StateCover)
+    {
+        if (ep->meta().value("supportsPosition").toBool() && state.contains("_position"))
+        {
+            double position = state.value("_position").toDouble();
+            state.insert("position", static_cast<int>(std::round(position * 100.0)));
+            state.insert("cover", position > 0.0 ? "open" : "closed");
+        }
+        else
+        {
+            bool closed = state.value("_legacyState", 0).toUInt() != 0;
+            state.insert("cover", closed ? "closed" : "open");
+            state.insert("position", closed ? 0 : 100);
+        }
+
+        state.remove("_position");
+        state.remove("_legacyState");
+    }
+
+    // Climate: proto3 omits an enum field entirely when its value is that
+    // enum's zero value (CLIMATE_PRESET_NONE="none", CLIMATE_FAN_ON="on") --
+    // same zero-value omission every other default above works around, but
+    // gated on whether the entity actually supports presets/fan modes at all
+    // (a device without either shouldn't gain a phantom "none"/"on" reading).
+    // Without this, an ESPHome device whose current preset genuinely *is*
+    // "none" never sends operationMode at all, so the web UI never receives
+    // a state update for it and shows no current value.
+    if (type == MsgType::StateClimate)
+    {
+        if (ep->meta().value("climateHasPreset").toBool() && !state.contains("operationMode"))
+            state.insert("operationMode", climatePresetName(0));
+        if (ep->meta().value("climateHasFanMode").toBool() && !state.contains("fanMode"))
+            state.insert("fanMode", climateFanModeName(0));
     }
 
     // For entities that use objectId as key in state JSON
@@ -802,8 +1086,9 @@ void EspHomeDevice::sendCommand(quint8 endpointId, const QString &action, const 
         if (action == "status")
         {
             QString v = value.toString().toLower();
+            bool state = v == "toggle" ? (ep->stateMap().value("status").toString() != "on") : (v == "on" || v == "1" || v == "true");
             cmd.addBool(2, true); // has_state
-            cmd.addBool(3, v == "on" || v == "1" || v == "true");
+            cmd.addBool(3, state);
         }
         else if (action == "level")
         {
@@ -834,6 +1119,85 @@ void EspHomeDevice::sendCommand(quint8 endpointId, const QString &action, const 
         }
 
         sendMessage(MsgType::LightCommand, cmd.data());
+    }
+    else if (type == "cover")
+    {
+        ProtoEncoder cmd;
+        cmd.addFixed32(1, key);
+
+        if (action == "cover")
+        {
+            QString v = value.toString().toLower();
+            if (v == "stop")
+            {
+                cmd.addBool(8, true); // stop
+            }
+            else
+            {
+                // ESPHome's own frontends translate open/close to position 1.0/0.0
+                // even for covers without supports_position -- the server maps it
+                // back to a plain open()/close() call internally either way.
+                cmd.addBool(4, true); // has_position
+                cmd.addFloat(5, v == "open" ? 1.0f : 0.0f);
+            }
+        }
+        else if (action == "position")
+        {
+            cmd.addBool(4, true); // has_position
+            cmd.addFloat(5, value.toFloat() / 100.0f);
+        }
+
+        sendMessage(MsgType::CoverCommand, cmd.data());
+    }
+    else if (type == "climate")
+    {
+        ProtoEncoder cmd;
+        cmd.addFixed32(1, key);
+
+        if (action == "systemMode")
+        {
+            int mode = climateModeValue(value.toString());
+            if (mode >= 0)
+            {
+                cmd.addBool(2, true); // has_mode
+                cmd.addVarint(3, static_cast<quint64>(mode));
+            }
+        }
+        else if (action == "targetTemperature")
+        {
+            cmd.addBool(4, true); // has_target_temperature
+            cmd.addFloat(5, value.toFloat());
+        }
+        else if (action == "fanMode")
+        {
+            int mode = climateFanModeValue(value.toString());
+            if (mode >= 0)
+            {
+                cmd.addBool(12, true); // has_fan_mode
+                cmd.addVarint(13, static_cast<quint64>(mode));
+            }
+            else
+            {
+                cmd.addBool(16, true); // has_custom_fan_mode
+                cmd.addString(17, value.toString());
+            }
+        }
+        else if (action == "operationMode")
+        {
+            int preset = climatePresetValue(value.toString());
+            if (preset >= 0)
+            {
+                cmd.addBool(18, true); // has_preset
+                cmd.addVarint(19, static_cast<quint64>(preset));
+            }
+            else
+            {
+                cmd.addBool(20, true); // has_custom_preset
+                cmd.addString(21, value.toString());
+            }
+        }
+
+        sendMessage(MsgType::ClimateCommand, cmd.data());
     }
     else if (type == "select")
     {
