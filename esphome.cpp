@@ -675,6 +675,21 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         if (info.type == "switch")
         {
             ep->exposes().append(QSharedPointer<SwitchObject>::create());
+
+            // Same situation as light/cover: SwitchObject's expose name is
+            // hardcoded "switch" (homed-common), so ExposeObject::title()'s
+            // option("switch", "title") lookup resolves "switch_<endpointId>"
+            // then plain "switch" -- neither of which is objectId -- so
+            // without this, HA discovery's name always falls back to the
+            // generic humanized "Switch" regardless of the entity's real
+            // name. SwitchObject::request() reads that same slot for its own
+            // device_class ("outlet" vs "switch") via a bare option().toString()
+            // call, which a title map here makes return empty (falls back to
+            // "switch") -- we don't currently surface device_class for switch
+            // at all, so this is a net improvement, not a new tradeoff.
+            m_device->options().insert(QString("switch_%1").arg(endpointId), QVariantMap {{"title", title}});
+            // objectId-keyed copy stays: Controller::publishExposes reads this
+            // for the web UI's own per-endpoint "expose" topic JSON.
             m_device->options().insert(objectId, QVariantMap {{"title", title}});
         }
         else if (info.type == "binary_sensor")
