@@ -90,6 +90,23 @@ case "$TOOLCHAIN" in
         "$QT_DIR/bin/qmake" homed-esphome.pro
         make -j"$(nproc)"
         ;;
+    apt:*)
+        # No sandbox.u236.org gcc build exists for this target -- use the OS
+        # repository's cross-compiler package instead (Debian/Ubuntu name it
+        # gcc-<prefix>/g++-<prefix>, matching the same <prefix>- binary naming
+        # the fetched toolchains use, so it's a drop-in PATH-only substitute;
+        # only Qt still comes from sandbox.u236.org).
+        PREFIX="${TOOLCHAIN#apt:}"
+        if ! command -v "${PREFIX}-gcc" >/dev/null 2>&1; then
+            echo "Installing gcc-$PREFIX/g++-$PREFIX from the OS repository..." >&2
+            SUDO=""
+            [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+            $SUDO apt-get update -qq
+            $SUDO apt-get install -y "gcc-$PREFIX" "g++-$PREFIX"
+        fi
+        "$QT_DIR/bin/qmake" homed-esphome.pro
+        make -j"$(nproc)"
+        ;;
     *)
         GCC_DIR="$(fetch gcc "$TOOLCHAIN")"
         export PATH="$PATH:$GCC_DIR/bin"
