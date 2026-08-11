@@ -686,6 +686,9 @@ void EspHomeDevice::applyDiscoveredEntities(void)
 
         if (info.type == "switch")
         {
+            QVariantMap opts = {{"title", title}};
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
+
             ep->exposes().append(QSharedPointer<SwitchObject>::create());
 
             // Same situation as light/cover: SwitchObject's expose name is
@@ -699,16 +702,17 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             // call, which a title map here makes return empty (falls back to
             // "switch") -- we don't currently surface device_class for switch
             // at all, so this is a net improvement, not a new tradeoff.
-            m_device->options().insert(QString("switch_%1").arg(endpointId), QVariantMap {{"title", title}});
+            m_device->options().insert(QString("switch_%1").arg(endpointId), opts);
             // objectId-keyed copy stays: Controller::publishExposes reads this
             // for the web UI's own per-endpoint "expose" topic JSON.
-            m_device->options().insert(objectId, QVariantMap {{"title", title}});
+            m_device->options().insert(objectId, opts);
         }
         else if (info.type == "binary_sensor")
         {
             auto expose = QSharedPointer<BinaryObject>::create(objectId);
             QVariantMap opts = {{"type", "binary"}, {"title", title}};
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
@@ -720,6 +724,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
             if (!info.stateClass.isEmpty()) opts.insert("state", info.stateClass);
             if (info.accuracyDecimals > 0) opts.insert("round", info.accuracyDecimals);
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
@@ -820,7 +825,9 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "select")
         {
             auto expose = QSharedPointer<SelectObject>::create(objectId);
-            m_device->options().insert(objectId, QVariantMap {{"type", "select"}, {"enum", info.selectOptions}, {"control", true}, {"title", title}});
+            QVariantMap opts = {{"type", "select"}, {"enum", info.selectOptions}, {"control", true}, {"title", title}};
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
+            m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "number")
@@ -833,6 +840,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             opts.insert("step", static_cast<double>(info.step > 0 ? info.step : 1.0f));
             opts.insert("control", true);
             opts.insert("title", title);
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
             m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
@@ -840,7 +848,9 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "button")
         {
             auto expose = QSharedPointer<ButtonObject>::create(objectId);
-            m_device->options().insert(objectId, QVariantMap {{"type", "button"}, {"control", true}, {"title", title}});
+            QVariantMap opts = {{"type", "button"}, {"control", true}, {"title", title}};
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
+            m_device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
 

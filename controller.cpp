@@ -135,6 +135,11 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
             }
             else
             {
+                // icon (like title/unit/class) rides along inside this same
+                // per-objectId map from esphome.cpp -- homed-web's addExpose()
+                // resolves options[property]/options[name] per row, never a
+                // top-level "icon" sibling, so it has to sit next to title,
+                // not beside it.
                 QVariant objOpt = device->options().value(objectId);
                 if (objOpt.isValid())
                     options.insert(items.first(), objOpt);
