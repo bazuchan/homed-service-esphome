@@ -551,18 +551,27 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         else if (info.type == "light")
         {
             auto expose = QSharedPointer<LightObject>::create();
-            m_device->options().insert(objectId, QVariantMap {{"title", title}});
 
             // LightObject's expose name is hardcoded "light" (homed-common), so
             // unlike every other type this can't key off objectId the same way.
-            // Two writes: the plain "light"/"colorTemperature" keys are what
-            // LightObject::request() itself reads via option() for HA discovery
-            // (m_name is always literal "light" there, so with >1 light on a
-            // device this pre-existing homed-common limitation still means HA
-            // only sees the last-discovered light's capabilities -- unchanged
-            // from before). The objectId-scoped copy is what our own
-            // Controller::publishExposes reads, so the web UI gets each light's
-            // real capabilities instead of the last light's clobbering the rest.
+            // "light"/"colorTemperature" are what LightObject::request() itself
+            // reads via option() for HA discovery (m_name is always literal
+            // "light" there, so with >1 light on a device this pre-existing
+            // homed-common limitation still means HA only sees the
+            // last-discovered light's capabilities). The objectId-scoped copy
+            // is what our own Controller::publishExposes reads instead, so the
+            // web UI gets each light's real capabilities rather than the last
+            // light's clobbering the rest. Title deliberately does NOT go under
+            // "light"/objectId+"_light" -- that key must always stay a plain
+            // capabilities array (homed-web's exposeList() does .concat() on
+            // it), so a title map landing there for a plain on/off light used
+            // to silently break rendering. Instead, title goes under
+            // "light_<endpointId>", the numeric-endpoint-suffixed key
+            // AbstractMetaObject::option() checks first -- this is the same
+            // convention homed-service-matter uses for colorTemperature_<id>,
+            // and it's what ExposeObject::title() needs to give each light its
+            // own name in HA discovery instead of a generic "Light" for all.
+            m_device->options().insert(QString("light_%1").arg(endpointId), QVariantMap {{"title", title}});
             m_device->options().insert("light", info.lightOptions);
             m_device->options().insert(objectId + "_light", info.lightOptions);
             if (info.minMireds > 0 || info.maxMireds > 0)

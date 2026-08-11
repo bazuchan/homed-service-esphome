@@ -93,30 +93,32 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
             epData.insert("items", QVariant(items));
 
             QMap<QString, QVariant> options;
-            QVariant objOpt = device->options().value(objectId);
-            if (objOpt.isValid())
-                options.insert(items.first(), objOpt);
 
             if (entityType == "light")
             {
+                // "light" (LightObject's expose name is hardcoded in
+                // homed-common) must always stay a plain capabilities array --
+                // homed-web's exposeList() does .concat() on it, so anything
+                // else (e.g. a title object) landing here breaks rendering.
                 // Read from the objectId-scoped keys esphome.cpp stores these
                 // under (a second light on the device would otherwise collide
                 // on a shared "light"/"colorTemperature" key) -- but the output
                 // key stays plain "light"/"colorTemperature", since that's what
                 // homed-web's expose.js expects for this endpoint's own options.
+                // Title is intentionally not published here at all -- it lives
+                // under "light_<endpointId>" (see esphome.cpp) for
+                // ExposeObject::title()'s HA-discovery lookup instead.
                 QVariant lightOpt = device->options().value(objectId + "_light");
-
-                // LightObject's expose name is hardcoded "light" (homed-common),
-                // so items.first() above is always "light" too -- the title we
-                // just inserted under that same key would get clobbered here.
-                // Only overwrite when there's an actual (non-empty) capability
-                // list, so a plain on/off light (no brightness/color/temp, where
-                // this is empty) keeps its title instead of losing it.
-                if (lightOpt.isValid() && !lightOpt.toStringList().isEmpty())
-                    options.insert("light", lightOpt);
+                options.insert("light", lightOpt.isValid() ? lightOpt : QVariant(QVariantList()));
 
                 QVariant ctOpt = device->options().value(objectId + "_colorTemperature");
                 if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
+            }
+            else
+            {
+                QVariant objOpt = device->options().value(objectId);
+                if (objOpt.isValid())
+                    options.insert(items.first(), objOpt);
             }
 
             if (!options.isEmpty())
