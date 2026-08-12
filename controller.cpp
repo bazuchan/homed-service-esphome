@@ -263,6 +263,13 @@ void Controller::publishStatus(void)
         json.insert("lastSeen",         device->lastSeen());
         json.insert("active",           device->active());
         json.insert("discovery",        device->discovery());
+
+        if (!device->parentAddress().isEmpty())
+        {
+            Device parent = m_devices->byHost(device->parentAddress());
+            json.insert("subdeviceOf", parent.isNull() ? device->parentAddress() : parent->name());
+        }
+
         devices.append(json);
     }
 
@@ -371,6 +378,21 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                 {
                     logWarning << "removeDevice: not found:" << id;
                     break;
+                }
+
+                // sub-devices ride on the parent's connection (see EspHomeDevice::subDevice()) -- removing the parent would otherwise orphan them: still published, but permanently unreachable since their parentAddress no longer resolves to a live connection
+                for (int i = m_devices->count() - 1; i >= 0; i--)
+                {
+                    Device sub = m_devices->at(i);
+                    if (sub == device || sub->parentAddress() != device->address())
+                        continue;
+
+                    publishExposes(sub.data(), true);
+                    mqttPublish(mqttTopic("device/%1/%2").arg(serviceTopic(), deviceTopic(sub.data())), QJsonObject(), true);
+                    m_devices->removeAt(i);
+
+                    QJsonObject subEv = {{"event", "removed"}, {"device", sub->name()}};
+                    mqttPublish(mqttTopic("event/%1").arg(serviceTopic()), subEv);
                 }
 
                 index = m_devices->indexOf(device);

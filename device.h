@@ -67,6 +67,10 @@ public:
     // number -> entity name for special entities' stable "1"/"2"/"3" identity; see EspHomeDevice::applyDiscoveredEntities()
     inline QMap <int, QString> &specialSlots(void) { return m_specialSlots; }
 
+    // non-empty for an ESPHome sub-device: the parent's own address(), used to route commands/connections to the shared connection instead of this device's own (synthetic) host
+    inline QString parentAddress(void) { return m_parentAddress; }
+    inline void setParentAddress(const QString &value) { m_parentAddress = value; }
+
 private:
 
     QString m_host, m_esphomeVersion;
@@ -75,6 +79,7 @@ private:
     qint64 m_lastSeen;
     QStringList m_publishedEndpoints;
     QMap <int, QString> m_specialSlots;
+    QString m_parentAddress;
 
 };
 

@@ -122,8 +122,8 @@ static int climatePresetValue(const QString &name)
 
 // ==================== EspHomeDevice ====================
 
-EspHomeDevice::EspHomeDevice(const Device &device, QObject *parent)
-    : QObject(parent), m_device(device), m_state(State::Disconnected), m_noise(nullptr), m_noiseHandshakeState(0)
+EspHomeDevice::EspHomeDevice(const Device &device, DeviceList *devices, QObject *parent)
+    : QObject(parent), m_device(device), m_devices(devices), m_state(State::Disconnected), m_noise(nullptr), m_noiseHandshakeState(0)
 {
     m_socket = new QTcpSocket(this);
     m_pingTimer = new QTimer(this);
@@ -425,6 +425,7 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
         case MsgType::DeviceInfoResponse:
         {
             auto fields = ProtoDecoder::decode(payload);
+            m_subDeviceNames.clear();
             for (const auto &f : fields)
             {
                 if (f.field() == 4 && f.wireType() == 2)
@@ -433,6 +434,22 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
                     m_device->setModelName(f.string());
                 else if (f.field() == 12 && f.wireType() == 2)
                     m_device->setManufacturerName(f.string());
+                else if (f.field() == 20 && f.wireType() == 2)
+                {
+                    // nested DeviceInfo { uint32 device_id = 1; string name = 2; uint32 area_id = 3; }
+                    auto subFields = ProtoDecoder::decode(f.bytes());
+                    quint32 subId = 0;
+                    QString subName;
+
+                    for (const auto &sf : subFields)
+                    {
+                        if (sf.field() == 1 && sf.wireType() == 0) subId = static_cast<quint32>(sf.varint());
+                        else if (sf.field() == 2 && sf.wireType() == 2) subName = sf.string();
+                    }
+
+                    if (subId > 0)
+                        m_subDeviceNames.insert(subId, subName);
+                }
             }
 
             // Request entity list
@@ -457,10 +474,9 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
             break;
 
         case MsgType::ListEntitiesDone:
-            applyDiscoveredEntities();
+            applyDiscoveredEntities(); // emits entitiesDiscovered for the main device and any sub-devices
             m_state = State::Subscribe;
             sendMessage(MsgType::SubscribeStates);
-            emit entitiesDiscovered(m_device.data());
             break;
 
         case MsgType::StateBinary:
@@ -509,12 +525,14 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 8 && f.wireType() == 0) info.toggleCategory = (f.varint() == 1 || f.varint() == 2); // CONFIG or DIAGNOSTIC
                 else if (f.field() == 9 && f.wireType() == 2) info.deviceClass = f.string();
+                else if (f.field() == 10 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesBinary:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.deviceClass = f.string();
                 else if (f.field() == 8 && f.wireType() == 2) info.icon = f.string();
+                else if (f.field() == 10 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesCover:
@@ -523,6 +541,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 7 && f.wireType() == 0) info.supportsTilt = f.boolean();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
                 else if (f.field() == 10 && f.wireType() == 2) info.icon = f.string();
+                else if (f.field() == 13 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesSensor:
@@ -544,12 +563,14 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                         default: break;
                     }
                 }
+                else if (f.field() == 14 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesTextSensor:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
+                else if (f.field() == 9 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesLight:
@@ -557,6 +578,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 9 && f.wireType() == 5) info.minMireds = f.floatVal();
                 else if (f.field() == 10 && f.wireType() == 5) info.maxMireds = f.floatVal();
                 else if (f.field() == 14 && f.wireType() == 2) info.icon = f.string();
+                else if (f.field() == 16 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 else if (f.field() == 12 && f.wireType() == 0)
                 {
                     // supported_color_modes: determine light capabilities
@@ -576,6 +598,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
             case MsgType::ListEntitiesClimate:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 19 && f.wireType() == 2) info.icon = f.string();
+                else if (f.field() == 26 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 else if (f.field() == 7 && f.wireType() == 0)
                 {
                     QString mode = climateModeName(f.varint());
@@ -603,6 +626,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 6 && f.wireType() == 2) info.selectOptions.append(f.string());
+                else if (f.field() == 9 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesNumber:
@@ -612,17 +636,20 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 7 && f.wireType() == 5) info.maxValue = f.floatVal();
                 else if (f.field() == 8 && f.wireType() == 5) info.step = f.floatVal();
                 else if (f.field() == 11 && f.wireType() == 2) info.unit = f.string();
+                else if (f.field() == 14 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesLock:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
+                else if (f.field() == 12 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
 
             case MsgType::ListEntitiesButton:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 8 && f.wireType() == 2) info.deviceClass = f.string();
+                else if (f.field() == 9 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
                 break;
         }
     }
@@ -653,9 +680,66 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
 
 void EspHomeDevice::applyDiscoveredEntities(void)
 {
+    QMap<quint32, QList<EntityInfo>> grouped;
+    for (const auto &info : m_pendingEntities)
+        grouped[info.deviceId].append(info);
+
+    QList<Device> touched;
+
+    applyEntitiesToDevice(m_device, grouped.value(0));
+    touched.append(m_device);
+
+    for (auto it = grouped.begin(); it != grouped.end(); it++)
+    {
+        Device sub;
+
+        if (it.key() == 0)
+            continue;
+
+        sub = subDevice(it.key());
+        if (sub.isNull())
+            continue;
+
+        applyEntitiesToDevice(sub, it.value());
+        touched.append(sub);
+    }
+
+    for (const auto &dev : touched)
+        emit entitiesDiscovered(dev.data());
+}
+
+// Finds (creating and persisting if needed) the DeviceObject representing an ESPHome
+// sub-device -- address is "<parent address>_<deviceId>" (stable even if the sub-device
+// is renamed in the ESPHome config, unlike its display name), port/key are copied from
+// the parent purely so DeviceList::parse()'s non-empty checks pass (a sub-device never
+// opens its own connection -- see EspHomeManager::connectAll()/sendCommand()).
+Device EspHomeDevice::subDevice(quint32 deviceId)
+{
+    QString subName = m_subDeviceNames.value(deviceId, QString::number(deviceId));
+    QString address = QString("%1_%2").arg(m_device->address()).arg(deviceId);
+    Device sub = m_devices->byHost(address);
+
+    if (sub.isNull())
+    {
+        sub = Device(new DeviceObject(subName, address, m_device->port(), m_device->encryptionKey()));
+        sub->setParentAddress(m_device->address());
+        m_devices->append(sub);
+        logInfo << m_device << "discovered sub-device" << subName << "(id" << deviceId << ")";
+    }
+
+    sub->setName(subName);
+    sub->setManufacturerName(m_device->manufacturerName());
+    sub->setModelName(QString("Subdev %1 of %2").arg(subName, m_device->name()));
+    sub->setParentAddress(m_device->address());
+
+    return sub;
+}
+
+void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<EntityInfo> &entities)
+{
     // Rebuild endpoints from discovered entities
-    m_device->endpoints().clear();
-    m_device->options().clear();
+    device->endpoints().clear();
+    device->options().clear();
 
     // objectId is a single camelCase token, no underscores -- see camelCase()
     // above for why. Built from the entity's own name (e.g. "Back Side
@@ -667,7 +751,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
     QMap<QString, int> objectIdCount;
     QStringList objectIds;
 
-    for (const auto &info : m_pendingEntities)
+    for (const auto &info : entities)
     {
         QString base = camelCase(!info.name.isEmpty() ? info.name : (!info.deviceClass.isEmpty() ? info.deviceClass : info.type));
         int count = objectIdCount.value(base, 0) + 1;
@@ -683,11 +767,11 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             || (info.type == "switch" && !info.toggleCategory);
     };
 
-    QMap<int, QString> &slotMap = m_device->specialSlots();
+    QMap<int, QString> &slotMap = device->specialSlots();
     QList<quint8> endpointIds;
     QSet<int> usedThisRound;
 
-    for (const auto &info : m_pendingEntities)
+    for (const auto &info : entities)
     {
         if (!isSpecialType(info))
         {
@@ -733,14 +817,14 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         }
     }
 
-    for (int i = 0; i < m_pendingEntities.count(); i++)
+    for (int i = 0; i < entities.count(); i++)
     {
-        const EntityInfo &info = m_pendingEntities.at(i);
+        const EntityInfo &info = entities.at(i);
         const QString &objectId = objectIds.at(i);
         quint8 endpointId = endpointIds.at(i);
         bool special = isSpecialType(info);
 
-        auto ep = QSharedPointer<EndpointObject>::create(endpointId, m_device);
+        auto ep = QSharedPointer<EndpointObject>::create(endpointId, device);
         ep->meta().insert("key", info.key);
         ep->meta().insert("type", info.type);
         ep->meta().insert("objectId", objectId);
@@ -764,13 +848,13 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             {
                 // config/diagnostic switches aren't a device's primary function -- route through "common" as a toggle, like select/number/button
                 opts.insert("type", "toggle");
-                m_device->options().insert(objectId, opts);
+                device->options().insert(objectId, opts);
             }
             else
             {
                 // SwitchObject's name is hardcoded "switch" -- title() resolves "switch_<endpointId>" then "switch", never objectId
-                m_device->options().insert(QString("switch_%1").arg(endpointId), opts);
-                m_device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
+                device->options().insert(QString("switch_%1").arg(endpointId), opts);
+                device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
             }
         }
         else if (info.type == "lock")
@@ -781,8 +865,8 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             ep->exposes().append(QSharedPointer<LockObject>::create());
 
             // LockObject's name is hardcoded "lock" -- title() resolves "lock_<endpointId>" then "lock", never objectId
-            m_device->options().insert(QString("lock_%1").arg(endpointId), opts);
-            m_device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
+            device->options().insert(QString("lock_%1").arg(endpointId), opts);
+            device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
         }
         else if (info.type == "binary_sensor")
         {
@@ -790,7 +874,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             QVariantMap opts = {{"type", "binary"}, {"title", title}};
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
-            m_device->options().insert(objectId, opts);
+            device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "sensor" || info.type == "text_sensor")
@@ -802,7 +886,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             if (!info.stateClass.isEmpty()) opts.insert("state", info.stateClass);
             if (info.accuracyDecimals > 0) opts.insert("round", info.accuracyDecimals);
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
-            m_device->options().insert(objectId, opts);
+            device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "light")
@@ -825,15 +909,15 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             // homed-service-matter's own light entities. The objectId-scoped
             // copy is what our own Controller::publishExposes reads instead,
             // so the web UI still gets each light's own real capabilities.
-            m_device->options().insert(QString("light_%1").arg(endpointId), info.lightOptions);
-            m_device->options().insert("light", info.lightOptions);
-            m_device->options().insert(objectId + "_light", info.lightOptions);
+            device->options().insert(QString("light_%1").arg(endpointId), info.lightOptions);
+            device->options().insert("light", info.lightOptions);
+            device->options().insert(objectId + "_light", info.lightOptions);
             if (info.minMireds > 0 || info.maxMireds > 0)
             {
                 QVariantMap colorTemperature {{"min", static_cast<int>(info.minMireds)}, {"max", static_cast<int>(info.maxMireds)}};
-                m_device->options().insert(QString("colorTemperature_%1").arg(endpointId), colorTemperature);
-                m_device->options().insert("colorTemperature", colorTemperature);
-                m_device->options().insert(objectId + "_colorTemperature", colorTemperature);
+                device->options().insert(QString("colorTemperature_%1").arg(endpointId), colorTemperature);
+                device->options().insert("colorTemperature", colorTemperature);
+                device->options().insert(objectId + "_colorTemperature", colorTemperature);
             }
             ep->exposes().append(expose);
         }
@@ -851,8 +935,8 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             // etc); homed-common's CoverObject only distinguishes "blind" from
             // everything else (defaulting the rest to "curtain"), so pass it
             // through as-is and let that existing logic sort it out.
-            m_device->options().insert(QString("cover_%1").arg(endpointId), info.deviceClass);
-            m_device->options().insert("cover", info.deviceClass);
+            device->options().insert(QString("cover_%1").arg(endpointId), info.deviceClass);
+            device->options().insert("cover", info.deviceClass);
             ep->meta().insert("supportsPosition", info.supportsPosition);
             ep->exposes().append(expose);
         }
@@ -867,32 +951,32 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             // no collision, and each sub-field gets its own automatic
             // "<name>_<endpointId>" priority slot from AbstractMetaObject::
             // option() the same way light's capabilities do.
-            m_device->options().insert(QString("thermostat_%1").arg(endpointId), QVariantMap {{"title", title}});
+            device->options().insert(QString("thermostat_%1").arg(endpointId), QVariantMap {{"title", title}});
 
             QVariantMap systemMode {{"enum", info.climateModes}};
-            m_device->options().insert(QString("systemMode_%1").arg(endpointId), systemMode);
-            m_device->options().insert("systemMode", systemMode);
+            device->options().insert(QString("systemMode_%1").arg(endpointId), systemMode);
+            device->options().insert("systemMode", systemMode);
 
             if (!info.climatePresets.isEmpty())
             {
                 QVariantMap operationMode {{"enum", info.climatePresets}};
-                m_device->options().insert(QString("operationMode_%1").arg(endpointId), operationMode);
-                m_device->options().insert("operationMode", operationMode);
+                device->options().insert(QString("operationMode_%1").arg(endpointId), operationMode);
+                device->options().insert("operationMode", operationMode);
             }
 
             if (!info.climateFanModes.isEmpty())
             {
                 QVariantMap fanMode {{"enum", info.climateFanModes}};
-                m_device->options().insert(QString("fanMode_%1").arg(endpointId), fanMode);
-                m_device->options().insert("fanMode", fanMode);
+                device->options().insert(QString("fanMode_%1").arg(endpointId), fanMode);
+                device->options().insert("fanMode", fanMode);
             }
 
             QVariantMap targetTemperature {{"min", static_cast<double>(info.minValue)}, {"max", static_cast<double>(info.maxValue)}, {"step", static_cast<double>(info.step > 0 ? info.step : 0.5f)}};
-            m_device->options().insert(QString("targetTemperature_%1").arg(endpointId), targetTemperature);
-            m_device->options().insert("targetTemperature", targetTemperature);
+            device->options().insert(QString("targetTemperature_%1").arg(endpointId), targetTemperature);
+            device->options().insert("targetTemperature", targetTemperature);
 
-            m_device->options().insert(QString("runningStatus_%1").arg(endpointId), info.climateSupportsAction);
-            m_device->options().insert("runningStatus", info.climateSupportsAction);
+            device->options().insert(QString("runningStatus_%1").arg(endpointId), info.climateSupportsAction);
+            device->options().insert("runningStatus", info.climateSupportsAction);
 
             ep->meta().insert("climateHasPreset", !info.climatePresets.isEmpty());
             ep->meta().insert("climateHasFanMode", !info.climateFanModes.isEmpty());
@@ -904,7 +988,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             auto expose = QSharedPointer<SelectObject>::create(objectId);
             QVariantMap opts = {{"type", "select"}, {"enum", info.selectOptions}, {"control", true}, {"title", title}};
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
-            m_device->options().insert(objectId, opts);
+            device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "number")
@@ -919,7 +1003,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             opts.insert("title", title);
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
-            m_device->options().insert(objectId, opts);
+            device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
         else if (info.type == "button")
@@ -927,7 +1011,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
             auto expose = QSharedPointer<ButtonObject>::create(objectId);
             QVariantMap opts = {{"type", "button"}, {"control", true}, {"title", title}};
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
-            m_device->options().insert(objectId, opts);
+            device->options().insert(objectId, opts);
             ep->exposes().append(expose);
         }
 
@@ -937,10 +1021,10 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         for (auto &expose : ep->exposes())
             expose->setParent(ep.data());
 
-        m_device->endpoints().insert(endpointId, ep);
+        device->endpoints().insert(endpointId, ep);
     }
 
-    logInfo << m_device << "discovered" << m_pendingEntities.count() << "entities";
+    logInfo << device << "discovered" << entities.count() << "entities";
 }
 
 void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
@@ -1059,12 +1143,13 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
             state.insert("running", false);
     }
 
-    // Find endpoint by key
-    quint8 endpointId = endpointByKey(key);
-    if (endpointId == 0)
+    // Find endpoint by key -- may belong to a sub-device, not necessarily m_device
+    Device device;
+    quint8 endpointId;
+    if (!findEndpointByKey(key, device, endpointId))
         return;
 
-    auto ep = m_device->endpoints().value(endpointId).staticCast<EndpointObject>();
+    auto ep = device->endpoints().value(endpointId).staticCast<EndpointObject>();
     if (!ep)
         return;
 
@@ -1147,39 +1232,61 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     for (auto it = state.begin(); it != state.end(); it++)
         ep->setState(it.key(), it.value());
 
-    m_device->updateLastSeen();
-    emit stateChanged(m_device.data(), endpointId);
+    m_device->updateLastSeen(); // last-seen tracks the physical connection, not the specific (sub-)device the state belongs to
+    emit stateChanged(device.data(), endpointId);
 }
 
-quint8 EspHomeDevice::endpointByKey(quint32 key) const
+bool EspHomeDevice::findEndpointByKey(quint32 key, Device &outDevice, quint8 &outEndpointId) const
 {
     for (auto it = m_device->endpoints().begin(); it != m_device->endpoints().end(); it++)
-        if (it.value()->meta().value("key").toUInt() == key)
-            return it.key();
-    return 0;
+    {
+        if (it.value()->meta().value("key").toUInt() != key)
+            continue;
+        outDevice = m_device;
+        outEndpointId = it.key();
+        return true;
+    }
+
+    for (auto devIt = m_subDeviceNames.begin(); devIt != m_subDeviceNames.end(); devIt++)
+    {
+        Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address()).arg(devIt.key()));
+        if (sub.isNull())
+            continue;
+
+        for (auto it = sub->endpoints().begin(); it != sub->endpoints().end(); it++)
+        {
+            if (it.value()->meta().value("key").toUInt() != key)
+                continue;
+            outDevice = sub;
+            outEndpointId = it.key();
+            return true;
+        }
+    }
+
+    return false;
 }
 
-void EspHomeDevice::sendCommand(quint8 endpointId, const QString &action, const QVariant &value)
+void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const QString &action, const QVariant &value)
 {
-    logInfo << m_device << "sendCommand ep" << endpointId << action << value.toString() << "state" << static_cast<int>(m_state);
+    logInfo << device << "sendCommand ep" << endpointId << action << value.toString() << "state" << static_cast<int>(m_state);
 
     if (m_state != State::Subscribe)
     {
-        logWarning << m_device << "sendCommand: not in Subscribe state, dropping";
+        logWarning << device << "sendCommand: not in Subscribe state, dropping";
         return;
     }
 
-    auto ep = m_device->endpoints().value(endpointId).staticCast<EndpointObject>();
+    auto ep = device->endpoints().value(endpointId).staticCast<EndpointObject>();
     if (!ep)
     {
-        logWarning << m_device << "sendCommand: endpoint" << endpointId << "not found";
+        logWarning << device << "sendCommand: endpoint" << endpointId << "not found";
         return;
     }
 
     quint32 key = ep->meta().value("key").toUInt();
     QString type = ep->meta().value("type").toString();
     QString objectId = ep->meta().value("objectId").toString();
-    logInfo << m_device << "sendCommand: type" << type << "key" << key << "objectId" << objectId;
+    logInfo << device << "sendCommand: type" << type << "key" << key << "objectId" << objectId;
 
     if (type == "switch")
     {
@@ -1196,7 +1303,7 @@ void EspHomeDevice::sendCommand(quint8 endpointId, const QString &action, const 
             state = (valueStr == "on" || valueStr == "1" || valueStr == "true");
         }
         cmd.addBool(2, state);
-        logInfo << m_device << "sendCommand switch: key" << key << "state" << state;
+        logInfo << device << "sendCommand switch: key" << key << "state" << state;
         sendMessage(MsgType::SwitchCommand, cmd.data());
     }
     else if (type == "lock")
@@ -1360,15 +1467,20 @@ EspHomeManager::EspHomeManager(DeviceList *devices, QObject *parent) : QObject(p
 void EspHomeManager::connectAll(void)
 {
     for (int i = 0; i < m_devices->count(); i++)
+    {
+        // sub-devices don't get their own connection -- they ride along on their parent's (see EspHomeDevice::subDevice())
+        if (!m_devices->at(i)->parentAddress().isEmpty())
+            continue;
         connectDevice(m_devices->at(i).data());
+    }
 }
 
 void EspHomeManager::connectDevice(DeviceObject *device)
 {
-    if (m_connections.contains(device->host()))
+    if (!device->parentAddress().isEmpty() || m_connections.contains(device->host()))
         return;
 
-    auto conn = new EspHomeDevice(m_devices->byHost(device->host()), this);
+    auto conn = new EspHomeDevice(m_devices->byHost(device->host()), m_devices, this);
     connect(conn, &EspHomeDevice::entitiesDiscovered, this, &EspHomeManager::entitiesDiscovered);
     connect(conn, &EspHomeDevice::stateChanged, this, &EspHomeManager::stateChanged);
     connect(conn, &EspHomeDevice::availabilityChanged, this, &EspHomeManager::availabilityChanged);
@@ -1379,6 +1491,7 @@ void EspHomeManager::connectDevice(DeviceObject *device)
 
 void EspHomeManager::disconnectDevice(DeviceObject *device)
 {
+    // a sub-device's host never has its own entry in m_connections, so this is already a no-op for it -- only its parent connection can be disconnected
     auto conn = m_connections.value(device->host());
     if (!conn)
         return;
@@ -1390,7 +1503,8 @@ void EspHomeManager::disconnectDevice(DeviceObject *device)
 
 void EspHomeManager::sendCommand(DeviceObject *device, quint8 endpointId, const QString &action, const QVariant &value)
 {
-    auto conn = m_connections.value(device->host());
+    QString connHost = device->parentAddress().isEmpty() ? device->host() : device->parentAddress();
+    auto conn = m_connections.value(connHost);
     if (conn)
-        conn->sendCommand(endpointId, action, value);
+        conn->sendCommand(device, endpointId, action, value);
 }

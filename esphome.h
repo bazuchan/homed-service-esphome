@@ -60,12 +60,12 @@ public:
 
     enum class State { Disconnected, Connecting, ClientHello, ServerHello, NoiseHandshake, Ready, ListEntities, Subscribe };
 
-    EspHomeDevice(const Device &device, QObject *parent = nullptr);
+    EspHomeDevice(const Device &device, DeviceList *devices, QObject *parent = nullptr);
     ~EspHomeDevice(void);
 
     void connectToDevice(void);
     void disconnectFromDevice(void);
-    void sendCommand(quint8 endpointId, const QString &action, const QVariant &value);
+    void sendCommand(DeviceObject *device, quint8 endpointId, const QString &action, const QVariant &value);
 
     inline Device device(void) { return m_device; }
     inline State state(void) { return m_state; }
@@ -90,16 +90,19 @@ private slots:
 private:
 
     Device m_device;
+    DeviceList *m_devices; // shared list this connection's main device (and any sub-devices it discovers) live in -- see subDevice()
     QTcpSocket *m_socket;
     QTimer *m_pingTimer, *m_reconnectTimer, *m_handshakeTimer;
     State m_state;
     NoiseNNpsk0 *m_noise;
     QByteArray m_rxBuf; // accumulates TCP stream data
     quint8 m_noiseHandshakeState; // 0=waiting server hello, 1=waiting noise response
+    QMap<quint32, QString> m_subDeviceNames; // ESPHome sub-device id -> name, from DeviceInfoResponse.devices
 
     // Pending entity list while discovering
     struct EntityInfo {
         quint32 key;
+        quint32 deviceId; // 0 = main device; otherwise an ESPHome sub-device id (see m_subDeviceNames)
         QString type;
         QString name;
         QString icon;
@@ -125,8 +128,10 @@ private:
     void processEntityInfo(quint16 type, const QByteArray &payload);
     void processStateUpdate(quint16 type, const QByteArray &payload);
     void applyDiscoveredEntities(void);
+    void applyEntitiesToDevice(const Device &device, const QList<EntityInfo> &entities);
+    Device subDevice(quint32 deviceId);
 
-    quint8 endpointByKey(quint32 key) const;
+    bool findEndpointByKey(quint32 key, Device &outDevice, quint8 &outEndpointId) const;
 };
 
 class EspHomeManager : public QObject

@@ -22,6 +22,10 @@ Devices are added and removed at runtime via MQTT commands. On each connection t
 
 `cover` and `climate` entities without native ESPHome support for a given feature (e.g. tilt, dual-point target temperature, swing mode) fall back to sane defaults rather than being exposed — see the inline comments in `esphome.cpp` for exactly what's covered.
 
+## Sub-devices
+
+ESPHome devices that group entities under [sub-devices](https://esphome.io/components/index.html#devices) are published as separate HOMEd devices rather than as endpoints of the parent, one per sub-device — address `<parent address>_<sub-device id>`, model `Subdev <sub-device name> of <parent name>`. They share the parent's connection (no separate TCP connection, no separate `addDevice`), are discovered/removed automatically alongside it, and removing the parent removes them too.
+
 ## MQTT commands
 
 See [COMMANDS.md](COMMANDS.md) for the full list of commands and entity control payloads.

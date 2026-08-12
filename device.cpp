@@ -104,6 +104,8 @@ Device DeviceList::parse(const QJsonObject &json)
     for (auto it = specialSlots.begin(); it != specialSlots.end(); it++)
         device->specialSlots().insert(it.key().toInt(), it.value().toString());
 
+    device->setParentAddress(json.value("parentAddress").toString());
+
     setupEndpoints(device, json.value("entities").toArray());
     return device;
 }
@@ -295,6 +297,9 @@ QJsonArray DeviceList::serialize(void)
         for (auto it = device->specialSlots().begin(); it != device->specialSlots().end(); it++)
             specialSlots.insert(QString::number(it.key()), it.value());
         json.insert("specialSlots", specialSlots);
+
+        if (!device->parentAddress().isEmpty())
+            json.insert("parentAddress", device->parentAddress());
 
         array.append(json);
     }
