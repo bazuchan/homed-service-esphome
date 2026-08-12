@@ -1,0 +1,17 @@
+<div class="title">
+    <span class="name">Add ESPHome device</span>
+</div>
+<form>
+    <label>Host: <span class="required">*</span></label>
+    <input type="text" name="host" placeholder="IP address or hostname">
+    <label>Encryption key: <span class="required">*</span></label>
+    <input type="text" name="key" placeholder="Base64-encoded 32-byte noise key">
+    <label>Port:</label>
+    <input type="number" name="port" value="6053">
+    <label>Name:</label>
+    <input type="text" name="name" placeholder="Optional, defaults to host">
+</form>
+<div class="buttons">
+    <button class="add"><i class="mdi-plus"></i> Add</button>
+    <button class="cancel"><i class="mdi-close-circle"></i> Cancel</button>
+</div>
