@@ -451,6 +451,7 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
         case MsgType::ListEntitiesClimate:
         case MsgType::ListEntitiesNumber:
         case MsgType::ListEntitiesSelect:
+        case MsgType::ListEntitiesLock:
         case MsgType::ListEntitiesButton:
             processEntityInfo(type, payload);
             break;
@@ -471,6 +472,7 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
         case MsgType::StateClimate:
         case MsgType::StateNumber:
         case MsgType::StateSelect:
+        case MsgType::StateLock:
             processStateUpdate(type, payload);
             break;
 
@@ -612,6 +614,11 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 else if (f.field() == 11 && f.wireType() == 2) info.unit = f.string();
                 break;
 
+            case MsgType::ListEntitiesLock:
+                if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
+                else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
+                break;
+
             case MsgType::ListEntitiesButton:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
@@ -637,6 +644,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
         case MsgType::ListEntitiesClimate:   info.type = "climate"; break;
         case MsgType::ListEntitiesSelect:    info.type = "select"; break;
         case MsgType::ListEntitiesNumber:    info.type = "number"; break;
+        case MsgType::ListEntitiesLock:      info.type = "lock"; break;
         case MsgType::ListEntitiesButton:    info.type = "button"; break;
     }
 
@@ -671,7 +679,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
     // Special entities get a stable number (persisted in DeviceObject::specialSlots(), reused by name match) instead of sharing "common" -- see Controller::publishExposes().
     auto isSpecialType = [](const EntityInfo &info)
     {
-        return info.type == "light" || info.type == "cover" || info.type == "climate"
+        return info.type == "light" || info.type == "cover" || info.type == "climate" || info.type == "lock"
             || (info.type == "switch" && !info.toggleCategory);
     };
 
@@ -764,6 +772,17 @@ void EspHomeDevice::applyDiscoveredEntities(void)
                 m_device->options().insert(QString("switch_%1").arg(endpointId), opts);
                 m_device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
             }
+        }
+        else if (info.type == "lock")
+        {
+            QVariantMap opts = {{"title", title}};
+            if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
+
+            ep->exposes().append(QSharedPointer<LockObject>::create());
+
+            // LockObject's name is hardcoded "lock" -- title() resolves "lock_<endpointId>" then "lock", never objectId
+            m_device->options().insert(QString("lock_%1").arg(endpointId), opts);
+            m_device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
         }
         else if (info.type == "binary_sensor")
         {
@@ -1002,6 +1021,11 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
                     state.insert("operationMode", f.string()); // custom_preset overrides
                 break;
 
+            case MsgType::StateLock:
+                if (f.field() == 2 && f.wireType() == 0)
+                    state.insert("status", (f.varint() == 1) ? "off" : "on"); // LOCK_STATE_LOCKED=1 -> "off", matching LockObject's state_locked/state_unlocked convention
+                break;
+
             case MsgType::StateSelect:
                 if (f.field() == 2 && f.wireType() == 2)
                     state.insert("_state", f.string());
@@ -1024,6 +1048,8 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     else if (type == MsgType::StateBinary && !state.contains("_state"))
         state.insert("_state", false);
     else if (type == MsgType::StateLight && !state.contains("status"))
+        state.insert("status", "off");
+    else if (type == MsgType::StateLock && !state.contains("status"))
         state.insert("status", "off");
     else if (type == MsgType::StateClimate)
     {
@@ -1172,6 +1198,15 @@ void EspHomeDevice::sendCommand(quint8 endpointId, const QString &action, const 
         cmd.addBool(2, state);
         logInfo << m_device << "sendCommand switch: key" << key << "state" << state;
         sendMessage(MsgType::SwitchCommand, cmd.data());
+    }
+    else if (type == "lock")
+    {
+        ProtoEncoder cmd;
+        cmd.addFixed32(1, key);
+        QString valueStr = value.toString().toLower();
+        bool locked = valueStr == "toggle" ? (ep->stateMap().value("status").toString() != "off") : (valueStr == "off" || valueStr == "0" || valueStr == "false");
+        cmd.addVarint(2, locked ? 1 : 0); // LOCK_LOCK=1, LOCK_UNLOCK=0
+        sendMessage(MsgType::LockCommand, cmd.data());
     }
     else if (type == "light")
     {

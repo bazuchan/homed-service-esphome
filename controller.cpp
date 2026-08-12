@@ -120,7 +120,7 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                             options.insert(key, opt);
                     }
                 }
-                // switch/cover: nothing else populated yet (see esphome.cpp)
+                // switch/lock/cover: nothing else populated yet (see esphome.cpp)
 
                 QMap<QString, QVariant> slotData;
                 slotData.insert("name", ep->meta().value("title").toString());

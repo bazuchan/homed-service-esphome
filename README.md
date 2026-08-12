@@ -15,6 +15,7 @@ Devices are added and removed at runtime via MQTT commands. On each connection t
 | `text_sensor`   | String-valued sensor                             |
 | `light`         | On/off, brightness, RGB color, color temperature |
 | `climate`       | Mode, target temperature, fan mode, preset       |
+| `lock`          | Lock/unlock, reports `status` (`off`=locked, `on`=unlocked) |
 | `select`        | Dropdown selection with enumerated options       |
 | `number`        | Numeric input with min/max/step constraints      |
 | `button`        | Momentary trigger (press only)                   |

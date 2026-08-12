@@ -46,20 +46,27 @@ Re-publishes current entity states for a device.
 
 ## Controlling entities
 
-All entities on a device share one command topic, `homed/td/esphome/<device>` — send a JSON object with one or more of the keys below (matching HOMEd's "common" convention: an ESPHome device has no native multi-endpoint concept the way Zigbee/Matter do, so its whole entity list is treated as one flat bucket rather than one topic per entity):
+`light`, `cover`, `climate`, `lock`, and any `switch` that isn't config/diagnostic-category are "special" entities: each gets its own stable numbered command topic, `homed/td/esphome/<device>/<N>` (the number is assigned on discovery and persists across reconnects/restarts — see the [expose topic](#expose-topic) section below). Everything else (`select`, `number`, `button`, `sensor`/`binary_sensor` read-only exposes, and config/diagnostic-category switches) shares one topic, `homed/td/esphome/<device>`, addressed by each entity's own `objectId`.
 
 | Entity type | Payload example |
 |-------------|-----------------|
-| `switch` | `{"status": "on"}` / `{"status": "off"}` / `{"status": "toggle"}` |
+| `switch` (special) | `{"status": "on"}` / `{"status": "off"}` / `{"status": "toggle"}` |
+| `switch` (config/diagnostic, on the shared topic) | `{"<objectId>": true}` |
 | `light` | `{"status": "on"}`, `{"level": 128}`, `{"color": [255, 0, 0]}`, `{"colorTemperature": 370}` |
 | `cover` | `{"cover": "open"}` / `{"cover": "close"}` / `{"cover": "stop"}`, `{"position": 50}` |
 | `climate` | `{"systemMode": "heat"}`, `{"targetTemperature": 21.5}`, `{"fanMode": "auto"}`, `{"operationMode": "eco"}` |
+| `lock` | `{"status": "off"}` (lock) / `{"status": "on"}` (unlock) / `{"status": "toggle"}` |
 | `select` | `{"<objectId>": "option name"}` |
 | `number` | `{"<objectId>": 42.5}` |
 | `button` | `{"<objectId>": true}` |
 
 `systemMode` values: `off`, `heat`, `cool`, `heat_cool`, `dry`, `auto`, `fan` (ESPHome's `FAN_ONLY` mode — not `fan_only`, that's only used in Home Assistant's own UI). `fanMode`/`operationMode` accept either one of ESPHome's standard tokens (`fanMode`: `on`, `off`, `auto`, `low`, `medium`, `high`, `middle`, `focus`, `diffuse`, `quiet`; `operationMode`: `none`, `home`, `away`, `boost`, `comfort`, `eco`, `sleep`, `activity`) or any custom fan mode/preset name the device itself advertises.
 
-Note: `status`/`level`/`color`/`colorTemperature`/`cover`/`position`/`systemMode`/etc. are fixed property names, not per-entity ones — a device with **two** switches (or two lights, two covers, two climates) can't be addressed unambiguously through this shared topic, since both would respond to the same key. `select`/`number`/`button` don't have this problem since their key is always each entity's own unique `objectId`.
+Entity states are published the same way: special entities to their own `homed/fd/esphome/<device>/<N>` topic, everything else merged into one JSON object on `homed/fd/esphome/<device>`.
 
-Entity states are published the same way, as one merged JSON object on `homed/fd/esphome/<device>`.
+## Expose topic
+
+`homed/expose/esphome/<device>` describes what a device has, published as `{"common": {...}, "<N>": {...}, ...}`:
+
+- `"common"` — `{"items": [...], "options": {...}}`, one entry per objectId-named entity (same shape every other HOMEd service uses).
+- `"<N>"` — one entry per special entity (light/cover/climate/lock/non-config switch), `{"name": "...", "items": [...], "options": {...}}`. `N` is a small stable integer assigned on first discovery and persisted in the device database; if the entity disappears from the ESPHome device it's not published here anymore, but `N` stays reserved for it (matched back up by name) in case it reappears.

@@ -65,6 +65,8 @@ static const char *msgTypeName(quint16 type)
         case 50: return "NumberStateResponse";
         case 52: return "ListEntitiesSelectResponse";
         case 53: return "SelectStateResponse";
+        case 58: return "ListEntitiesLockResponse";
+        case 59: return "LockStateResponse";
         case 61: return "ListEntitiesButtonResponse";
         default: return "?";
     }
@@ -368,7 +370,7 @@ int main(int argc, char *argv[])
                 listEntitiesTotal++;
                 break;
 
-            case 12: case 13: case 15: case 17: case 18: case 46: case 49: case 52: case 61:
+            case 12: case 13: case 15: case 17: case 18: case 46: case 49: case 52: case 58: case 61:
                 listEntitiesTotal++;
                 break;
 
@@ -379,7 +381,7 @@ int main(int argc, char *argv[])
                 subscribed = true;
                 break;
 
-            case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 47: case 50: case 53:
+            case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 47: case 50: case 53: case 59:
                 stateCount++;
                 break;
 

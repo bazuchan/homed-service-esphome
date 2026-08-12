@@ -45,6 +45,9 @@ namespace MsgType {
     static const quint16 ListEntitiesSelect      = 52;
     static const quint16 StateSelect             = 53;
     static const quint16 SelectCommand          = 54;
+    static const quint16 ListEntitiesLock        = 58;
+    static const quint16 StateLock               = 59;
+    static const quint16 LockCommand            = 60;
     static const quint16 ListEntitiesButton      = 61;
     static const quint16 ButtonCommand          = 62;
 }
