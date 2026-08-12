@@ -37,6 +37,19 @@ QString Controller::deviceTopic(DeviceObject *device)
     return m_devices->names() ? device->name() : device->address();
 }
 
+// Resolves a JSON key on the shared "common" td topic by objectId -- special (numbered-slot) entities have their own dedicated td topic instead.
+quint8 Controller::endpointForAction(DeviceObject *device, const QString &action)
+{
+    for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
+    {
+        auto ep = it.value().staticCast<EndpointObject>();
+        if (ep && ep->meta().value("objectId").toString() == action)
+            return it.key();
+    }
+
+    return 0;
+}
+
 // Home Assistant's MQTT discovery topic (<prefix>/<component>/<node_id>/<object_id>/config)
 // only allows [a-zA-Z0-9_-] in node_id/object_id -- stricter than general MQTT
 // topics, which tolerate dots fine (see https://www.home-assistant.io/integrations/mqtt/#discovery-topic).
@@ -58,20 +71,15 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
 {
     QString devTopic = deviceTopic(device);
 
-    // Built ourselves rather than via DeviceObject::publishExposes() (homed-common):
-    // that call also unconditionally republishes its own numeric-endpoint-keyed
-    // copy of the expose/<service>/<device> topic (AbstractDeviceObject::addExposeData),
-    // which collides with the objectId-keyed one published below -- both land on
-    // the same retained topic, so a client already subscribed during a live
-    // (re)publish sees both messages and never prunes the stale numeric-keyed one.
-    // Also lets state_topic/command_topic use our actual objectId-based fd//td
-    // topics directly instead of homed-common's numeric-endpoint convention.
+    // Built ourselves rather than via DeviceObject::publishExposes() (homed-common) -- that also republishes a colliding numeric-endpoint-keyed copy and doesn't know about our shared fd//td topics.
     if (m_haEnabled)
         publishHaDiscovery(device, devTopic, remove);
 
-    // Publish expose JSON with objectId as endpoint keys for stable topic routing
+    // light/cover/climate/non-toggle switch get a stable numbered key (esphome.cpp's DeviceObject::specialSlots()); everything else is objectId-named and shares "common".
     if (!remove)
     {
+        QList<QString> commonItems;
+        QMap<QString, QVariant> commonOptions;
         QMap<QString, QVariant> data;
 
         for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
@@ -85,71 +93,60 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
             if (objectId.isEmpty())
                 continue;
 
-            QList<QString> items;
+            QList<QString> epItems;
             for (const auto &expose : ep->exposes())
-                items.append(expose->name());
+                epItems.append(expose->name());
 
-            QMap<QString, QVariant> epData;
-            epData.insert("items", QVariant(items));
-
-            QMap<QString, QVariant> options;
-
-            if (entityType == "light")
+            if (ep->meta().value("special").toBool())
             {
-                // "light" (LightObject's expose name is hardcoded in
-                // homed-common) must always stay a plain capabilities array --
-                // homed-web's exposeList() does .concat() on it, so anything
-                // else (e.g. a title object) landing here breaks rendering.
-                // Read from the objectId-scoped keys esphome.cpp stores these
-                // under (a second light on the device would otherwise collide
-                // on a shared "light"/"colorTemperature" key) -- but the output
-                // key stays plain "light"/"colorTemperature", since that's what
-                // homed-web's expose.js expects for this endpoint's own options.
-                // Title is intentionally not published here at all -- light's
-                // "light"/"light_<endpointId>" key is capabilities-only (see
-                // esphome.cpp), so light entities always keep the generic
-                // auto-humanized "Light" HA-discovery name.
-                QVariant lightOpt = device->options().value(objectId + "_light");
-                options.insert("light", lightOpt.isValid() ? lightOpt : QVariant(QVariantList()));
+                // "name" sits beside "options", not inside it -- options must stay title-free (see esphome.cpp's light/cover/switch comments)
+                QMap<QString, QVariant> options;
 
-                QVariant ctOpt = device->options().value(objectId + "_colorTemperature");
-                if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
-            }
-            else if (entityType == "climate")
-            {
-                // homed-web's exposeList() reads these as flat sibling keys in
-                // this endpoint's own options (not nested under "thermostat"),
-                // conditionally including each in the rendered card only when
-                // present -- so devices without e.g. a preset/fan mode just
-                // omit that key rather than publishing an empty one. Same
-                // "<name>_<endpointId>" keys esphome.cpp wrote for
-                // ThermostatObject's own option() calls (HA discovery), reused
-                // here for the web UI's copy of the same data.
-                static const QList<QString> climateKeys = {"systemMode", "operationMode", "fanMode", "targetTemperature", "runningStatus"};
-                for (const auto &key : climateKeys)
+                if (entityType == "light")
                 {
-                    QVariant opt = device->options().value(QString("%1_%2").arg(key).arg(it.key()));
-                    if (opt.isValid())
-                        options.insert(key, opt);
+                    QVariant lightOpt = device->options().value(objectId + "_light");
+                    options.insert("light", lightOpt.isValid() ? lightOpt : QVariant(QVariantList()));
+
+                    QVariant ctOpt = device->options().value(objectId + "_colorTemperature");
+                    if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
                 }
+                else if (entityType == "climate")
+                {
+                    static const QList<QString> climateKeys = {"systemMode", "operationMode", "fanMode", "targetTemperature", "runningStatus"};
+                    for (const auto &key : climateKeys)
+                    {
+                        QVariant opt = device->options().value(QString("%1_%2").arg(key).arg(it.key()));
+                        if (opt.isValid())
+                            options.insert(key, opt);
+                    }
+                }
+                // switch/cover: nothing else populated yet (see esphome.cpp)
+
+                QMap<QString, QVariant> slotData;
+                slotData.insert("name", ep->meta().value("title").toString());
+                slotData.insert("items", QVariant(epItems));
+                if (!options.isEmpty())
+                    slotData.insert("options", options);
+
+                data.insert(QString::number(it.key()), slotData);
             }
             else
             {
-                // icon (like title/unit/class) rides along inside this same
-                // per-objectId map from esphome.cpp -- homed-web's addExpose()
-                // resolves options[property]/options[name] per row, never a
-                // top-level "icon" sibling, so it has to sit next to title,
-                // not beside it.
+                commonItems.append(epItems);
+
+                // icon rides along inside this same per-objectId map, next to title -- homed-web reads options[property], never a top-level "icon"
                 QVariant objOpt = device->options().value(objectId);
                 if (objOpt.isValid())
-                    options.insert(items.first(), objOpt);
+                    commonOptions.insert(epItems.first(), objOpt);
             }
-
-            if (!options.isEmpty())
-                epData.insert("options", options);
-
-            data.insert(objectId, epData);
         }
+
+        QMap<QString, QVariant> commonData;
+        commonData.insert("items", QVariant(commonItems));
+        if (!commonOptions.isEmpty())
+            commonData.insert("options", commonOptions);
+
+        data.insert("common", commonData);
 
         mqttPublish(mqttTopic("expose/%1/%2").arg(serviceTopic(), devTopic),
             QJsonObject::fromVariantMap(data), true);
@@ -198,11 +195,13 @@ void Controller::publishHaDiscovery(DeviceObject *device, const QString &devTopi
 
             if (!remove)
             {
-                // Our own fd//td topics, keyed by objectId -- matches exactly
-                // what stateChanged()/mqttReceived() publish/subscribe to, no
-                // separate numeric-endpoint scheme to keep in sync.
-                expose->setStateTopic(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), devTopic, objectId));
-                expose->setCommandTopic(mqttTopic("td/%1/%2/%3").arg(serviceTopic(), devTopic, objectId));
+                // Special entities get their own fd//td topic (suffixed with their stable number); everything else shares the device-wide "common" one
+                QString topic = ep->meta().value("special").toBool()
+                    ? QString("%1/%2").arg(devTopic).arg(it.key())
+                    : devTopic;
+
+                expose->setStateTopic(mqttTopic("fd/%1/%2").arg(serviceTopic(), topic));
+                expose->setCommandTopic(mqttTopic("td/%1/%2").arg(serviceTopic(), topic));
 
                 QString icon = ep->meta().value("icon").toString();
 
@@ -232,33 +231,19 @@ void Controller::clearStaleTopics(DeviceObject *device)
     QString devTopic = deviceTopic(device);
     QStringList published = device->publishedEndpoints();
 
-    // Collect current valid endpoint objectIds
-    QStringList current;
-    for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
-    {
-        auto ep = it.value().staticCast<EndpointObject>();
-        if (ep)
-        {
-            QString objectId = ep->meta().value("objectId").toString();
-            if (!objectId.isEmpty())
-                current.append(objectId);
-        }
-    }
-
-    // One-time migration: if nothing tracked yet but endpoints exist, clear old numeric IDs
+    // one-time migration from the oldest (pre-objectId) scheme: numeric endpoint IDs used to be the fd topic's own final path segment
     if (published.isEmpty() && !device->endpoints().isEmpty())
     {
         for (int i = 1; i <= device->endpoints().count(); i++)
             mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), devTopic).arg(i), QJsonObject(), true);
     }
 
-    // Clear stale tracked topics
+    // one-time migration from the objectId-per-entity-topic scheme: those retained topics are stale now (see publishExposes()/publishDeviceState()); publishedEndpoints() isn't repopulated after this, so this only runs once more
     for (const QString &key : published)
-    {
-        if (current.contains(key))
-            continue;
         mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), devTopic, key), QJsonObject(), true);
-    }
+
+    if (!published.isEmpty())
+        device->setPublishedEndpoints(QStringList());
 }
 
 void Controller::publishStatus(void)
@@ -434,33 +419,32 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
     }
     else if (subTopic.startsWith(QString("td/%1/").arg(serviceTopic())))
     {
-        QList<QString> parts = subTopic.remove(QString("td/%1/").arg(serviceTopic())).split('/');
+        // td/<service>/<device> (shared "common") or td/<service>/<device>/<number> (one special entity's own topic)
+        QList<QString> parts = subTopic.mid(QString("td/%1/").arg(serviceTopic()).length()).split('/');
         QString deviceId = parts.value(0);
-        QString objectId = parts.value(1);
+        QString slotStr = parts.value(1);
 
         Device device = m_devices->byName(deviceId);
         if (device.isNull()) device = m_devices->byHost(deviceId);
-        if (device.isNull() || objectId.isEmpty())
+        if (device.isNull())
             return;
 
-        quint8 endpointId = 0;
-        for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
-        {
-            auto ep = it.value().staticCast<EndpointObject>();
-            if (ep && ep->meta().value("objectId").toString() == objectId)
-            {
-                endpointId = it.key();
-                break;
-            }
-        }
-
-        if (endpointId == 0)
+        bool slotOk = false;
+        quint8 slotEndpointId = slotStr.isEmpty() ? 0 : static_cast<quint8>(slotStr.toUInt(&slotOk));
+        if (!slotStr.isEmpty() && !slotOk)
             return;
 
         for (auto it = json.begin(); it != json.end(); it++)
         {
+            quint8 endpointId;
+
             if (!it.value().toVariant().isValid())
                 continue;
+
+            endpointId = slotEndpointId ? slotEndpointId : endpointForAction(device.data(), it.key());
+            if (endpointId == 0)
+                continue;
+
             m_esphome->sendCommand(device.data(), endpointId, it.key(), it.value().toVariant());
         }
     }
@@ -480,31 +464,13 @@ void Controller::updateProperties(void)
         if (!device->active())
             continue;
 
-        for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
-        {
-            auto ep = it.value().staticCast<EndpointObject>();
-            if (!ep || ep->stateMap().isEmpty())
-                continue;
-            stateChanged(device, it.key());
-        }
+        publishDeviceState(device);
     }
 }
 
 void Controller::entitiesDiscovered(DeviceObject *device)
 {
-    QStringList endpoints;
-    for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
-    {
-        auto ep = it.value().staticCast<EndpointObject>();
-        if (ep)
-        {
-            QString objectId = ep->meta().value("objectId").toString();
-            if (!objectId.isEmpty())
-                endpoints.append(objectId);
-        }
-    }
-    device->setPublishedEndpoints(endpoints);
-
+    // publishedEndpoints is only clearStaleTopics()'s one-time migration marker now, not repopulated here
     m_devices->store();
     clearStaleTopics(device);
     publishExposes(device);
@@ -517,18 +483,39 @@ void Controller::entitiesDiscovered(DeviceObject *device)
 
 void Controller::stateChanged(DeviceObject *device, quint8 endpointId)
 {
+    Q_UNUSED(endpointId) // which endpoint changed doesn't matter -- publishDeviceState() re-publishes the right topic(s) regardless
+    publishDeviceState(device);
+}
+
+void Controller::publishDeviceState(DeviceObject *device)
+{
     if (!mqttStatus())
         return;
 
-    auto ep = device->endpoints().value(endpointId).staticCast<EndpointObject>();
-    if (!ep || ep->stateMap().isEmpty())
-        return;
+    QString devTopic = deviceTopic(device);
+    QMap<QString, QVariant> commonState;
+    bool hasCommonState = false;
 
-    QString objectId = ep->meta().value("objectId").toString();
-    if (objectId.isEmpty())
-        return;
+    // special entities publish their own fd topic; everything else merges into one shared "common" snapshot -- same split as publishExposes()
+    for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
+    {
+        auto ep = it.value().staticCast<EndpointObject>();
+        if (!ep || ep->stateMap().isEmpty())
+            continue;
 
-    mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), deviceTopic(device), objectId), ep->state());
+        if (ep->meta().value("special").toBool())
+        {
+            mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), devTopic).arg(it.key()), ep->state());
+            continue;
+        }
+
+        hasCommonState = true;
+        for (auto stateIt = ep->stateMap().begin(); stateIt != ep->stateMap().end(); stateIt++)
+            commonState.insert(stateIt.key(), stateIt.value());
+    }
+
+    if (hasCommonState)
+        mqttPublish(mqttTopic("fd/%1/%2").arg(serviceTopic(), devTopic), QJsonObject::fromVariantMap(commonState));
 }
 
 void Controller::availabilityChanged(DeviceObject *device)

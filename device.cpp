@@ -100,6 +100,10 @@ Device DeviceList::parse(const QJsonObject &json)
     device->setModelName(json.value("modelName").toString());
     device->setEsphomeVersion(json.value("esphomeVersion").toString());
 
+    QJsonObject specialSlots = json.value("specialSlots").toObject();
+    for (auto it = specialSlots.begin(); it != specialSlots.end(); it++)
+        device->specialSlots().insert(it.key().toInt(), it.value().toString());
+
     setupEndpoints(device, json.value("entities").toArray());
     return device;
 }
@@ -286,6 +290,12 @@ QJsonArray DeviceList::serialize(void)
 
         json.insert("entities", entities);
         json.insert("publishedEndpoints", QJsonArray::fromStringList(device->publishedEndpoints()));
+
+        QJsonObject specialSlots;
+        for (auto it = device->specialSlots().begin(); it != device->specialSlots().end(); it++)
+            specialSlots.insert(QString::number(it.key()), it.value());
+        json.insert("specialSlots", specialSlots);
+
         array.append(json);
     }
 

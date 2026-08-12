@@ -39,8 +39,10 @@ private:
     void publishExposes(DeviceObject *device, bool remove = false);
     void publishHaDiscovery(DeviceObject *device, const QString &devTopic, bool remove);
     void publishStatus(void);
+    void publishDeviceState(DeviceObject *device);
     void clearStaleTopics(DeviceObject *device);
     QString deviceTopic(DeviceObject *device);
+    quint8 endpointForAction(DeviceObject *device, const QString &action);
 
 public slots:
 

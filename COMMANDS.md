@@ -46,7 +46,7 @@ Re-publishes current entity states for a device.
 
 ## Controlling entities
 
-Send to `homed/td/esphome/<device>/<endpointId>`:
+All entities on a device share one command topic, `homed/td/esphome/<device>` — send a JSON object with one or more of the keys below (matching HOMEd's "common" convention: an ESPHome device has no native multi-endpoint concept the way Zigbee/Matter do, so its whole entity list is treated as one flat bucket rather than one topic per entity):
 
 | Entity type | Payload example |
 |-------------|-----------------|
@@ -60,4 +60,6 @@ Send to `homed/td/esphome/<device>/<endpointId>`:
 
 `systemMode` values: `off`, `heat`, `cool`, `heat_cool`, `dry`, `auto`, `fan` (ESPHome's `FAN_ONLY` mode — not `fan_only`, that's only used in Home Assistant's own UI). `fanMode`/`operationMode` accept either one of ESPHome's standard tokens (`fanMode`: `on`, `off`, `auto`, `low`, `medium`, `high`, `middle`, `focus`, `diffuse`, `quiet`; `operationMode`: `none`, `home`, `away`, `boost`, `comfort`, `eco`, `sleep`, `activity`) or any custom fan mode/preset name the device itself advertises.
 
-Entity states are published to `homed/fd/esphome/<device>/<endpointId>`.
+Note: `status`/`level`/`color`/`colorTemperature`/`cover`/`position`/`systemMode`/etc. are fixed property names, not per-entity ones — a device with **two** switches (or two lights, two covers, two climates) can't be addressed unambiguously through this shared topic, since both would respond to the same key. `select`/`number`/`button` don't have this problem since their key is always each entity's own unique `objectId`.
+
+Entity states are published the same way, as one merged JSON object on `homed/fd/esphome/<device>`.

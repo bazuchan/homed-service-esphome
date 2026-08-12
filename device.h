@@ -64,6 +64,9 @@ public:
     inline QStringList publishedEndpoints(void) { return m_publishedEndpoints; }
     inline void setPublishedEndpoints(const QStringList &value) { m_publishedEndpoints = value; }
 
+    // number -> entity name for special entities' stable "1"/"2"/"3" identity; see EspHomeDevice::applyDiscoveredEntities()
+    inline QMap <int, QString> &specialSlots(void) { return m_specialSlots; }
+
 private:
 
     QString m_host, m_esphomeVersion;
@@ -71,6 +74,7 @@ private:
     QByteArray m_encryptionKey;
     qint64 m_lastSeen;
     QStringList m_publishedEndpoints;
+    QMap <int, QString> m_specialSlots;
 
 };
 

@@ -111,6 +111,7 @@ private:
         bool supportsPosition, supportsTilt; // cover
         QStringList climateModes, climateFanModes, climatePresets; // climate
         bool climateSupportsAction; // climate
+        bool toggleCategory; // switch: entity_category == CONFIG or DIAGNOSTIC
     };
     QList<EntityInfo> m_pendingEntities;
 

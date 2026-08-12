@@ -505,6 +505,7 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
             case MsgType::ListEntitiesSwitch:
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 5 && f.wireType() == 2) info.icon = f.string();
+                else if (f.field() == 8 && f.wireType() == 0) info.toggleCategory = (f.varint() == 1 || f.varint() == 2); // CONFIG or DIAGNOSTIC
                 else if (f.field() == 9 && f.wireType() == 2) info.deviceClass = f.string();
                 break;
 
@@ -667,22 +668,82 @@ void EspHomeDevice::applyDiscoveredEntities(void)
         objectIds.append(count > 1 ? QString("%1%2").arg(base).arg(count) : base);
     }
 
+    // Special entities get a stable number (persisted in DeviceObject::specialSlots(), reused by name match) instead of sharing "common" -- see Controller::publishExposes().
+    auto isSpecialType = [](const EntityInfo &info)
+    {
+        return info.type == "light" || info.type == "cover" || info.type == "climate"
+            || (info.type == "switch" && !info.toggleCategory);
+    };
+
+    QMap<int, QString> &slotMap = m_device->specialSlots();
+    QList<quint8> endpointIds;
+    QSet<int> usedThisRound;
+
+    for (const auto &info : m_pendingEntities)
+    {
+        if (!isSpecialType(info))
+        {
+            endpointIds.append(0); // resolved in the common pass below
+            continue;
+        }
+
+        int number = 0;
+        for (auto it = slotMap.begin(); it != slotMap.end(); it++)
+        {
+            if (it.value() == info.name && !usedThisRound.contains(it.key()))
+            {
+                number = it.key();
+                break;
+            }
+        }
+
+        if (number == 0)
+        {
+            number = 1;
+            while (slotMap.contains(number) || usedThisRound.contains(number))
+                number++;
+        }
+
+        slotMap.insert(number, info.name);
+        usedThisRound.insert(number);
+        endpointIds.append(static_cast<quint8>(number));
+    }
+
+    {
+        int next = 1;
+        for (int i = 0; i < endpointIds.count(); i++)
+        {
+            if (endpointIds.at(i) != 0)
+                continue;
+
+            while (usedThisRound.contains(next))
+                next++;
+
+            endpointIds[i] = static_cast<quint8>(next);
+            usedThisRound.insert(next);
+            next++;
+        }
+    }
+
     for (int i = 0; i < m_pendingEntities.count(); i++)
     {
         const EntityInfo &info = m_pendingEntities.at(i);
         const QString &objectId = objectIds.at(i);
-        quint8 endpointId = static_cast<quint8>(i + 1);
+        quint8 endpointId = endpointIds.at(i);
+        bool special = isSpecialType(info);
 
         auto ep = QSharedPointer<EndpointObject>::create(endpointId, m_device);
         ep->meta().insert("key", info.key);
         ep->meta().insert("type", info.type);
         ep->meta().insert("objectId", objectId);
+        ep->meta().insert("special", special);
         if (info.accuracyDecimals > 0)
             ep->meta().insert("round", info.accuracyDecimals);
         if (!info.icon.isEmpty())
             ep->meta().insert("icon", info.icon);
 
         QString title = info.name.isEmpty() ? objectId : info.name;
+        ep->meta().insert("title", title); // separate from the device->options() title slots below, which only exist to feed HA discovery
 
         if (info.type == "switch")
         {
@@ -691,21 +752,18 @@ void EspHomeDevice::applyDiscoveredEntities(void)
 
             ep->exposes().append(QSharedPointer<SwitchObject>::create());
 
-            // Same situation as light/cover: SwitchObject's expose name is
-            // hardcoded "switch" (homed-common), so ExposeObject::title()'s
-            // option("switch", "title") lookup resolves "switch_<endpointId>"
-            // then plain "switch" -- neither of which is objectId -- so
-            // without this, HA discovery's name always falls back to the
-            // generic humanized "Switch" regardless of the entity's real
-            // name. SwitchObject::request() reads that same slot for its own
-            // device_class ("outlet" vs "switch") via a bare option().toString()
-            // call, which a title map here makes return empty (falls back to
-            // "switch") -- we don't currently surface device_class for switch
-            // at all, so this is a net improvement, not a new tradeoff.
-            m_device->options().insert(QString("switch_%1").arg(endpointId), opts);
-            // objectId-keyed copy stays: Controller::publishExposes reads this
-            // for the web UI's own per-endpoint "expose" topic JSON.
-            m_device->options().insert(objectId, opts);
+            if (info.toggleCategory)
+            {
+                // config/diagnostic switches aren't a device's primary function -- route through "common" as a toggle, like select/number/button
+                opts.insert("type", "toggle");
+                m_device->options().insert(objectId, opts);
+            }
+            else
+            {
+                // SwitchObject's name is hardcoded "switch" -- title() resolves "switch_<endpointId>" then "switch", never objectId
+                m_device->options().insert(QString("switch_%1").arg(endpointId), opts);
+                m_device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
+            }
         }
         else if (info.type == "binary_sensor")
         {
