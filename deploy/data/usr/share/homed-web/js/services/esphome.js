@@ -64,6 +64,13 @@ class ESPHome extends DeviceService
 
                     check = true;
                 }
+                else if (this.names && this.devices[device.id].info.name != device.name)
+                {
+                    this.controller.socket.unsubscribe('expose/' + this.service + '/' + this.devices[device.id].info.name);
+                    this.controller.socket.unsubscribe('device/' + this.service + '/' + this.devices[device.id].info.name);
+                    this.controller.socket.subscribe('expose/' + this.service + '/' + device.name);
+                    this.controller.socket.subscribe('device/' + this.service + '/' + device.name);
+                }
 
                 this.devices[device.id].info = device;
 
@@ -102,8 +109,8 @@ class ESPHome extends DeviceService
         let list = data ? data.split('=') : new Array();
         let device;
 
-        menu.innerHTML  = '<span id="list"><i class="icon-list"></i> List</span>';
-        menu.innerHTML += '<span id="add"><i class="icon-plus"></i> Add</span>';
+        menu.innerHTML  = '<span id="list"><i class="mdi-menu"></i> List</span>';
+        menu.innerHTML += '<span id="add"><i class="mdi-plus"></i> Add</span>';
 
         menu.querySelector('#list').addEventListener('click', function() { this.controller.showPage(this.service); }.bind(this));
         menu.querySelector('#add').addEventListener('click', function() { this.showDeviceAdd(); }.bind(this));
