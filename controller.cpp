@@ -102,6 +102,10 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                 QMap<QString, QVariant> options;
                 options.insert("name", ep->meta().value("title").toString());
 
+                QString icon = ep->meta().value("icon").toString();
+                if (!icon.isEmpty())
+                    options.insert("icon", icon);
+
                 if (entityType == "light")
                 {
                     QVariant lightOpt = device->options().value(objectId + "_light");
