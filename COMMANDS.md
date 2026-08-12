@@ -69,4 +69,4 @@ Entity states are published the same way: special entities to their own `homed/f
 `homed/expose/esphome/<device>` describes what a device has, published as `{"common": {...}, "<N>": {...}, ...}`:
 
 - `"common"` — `{"items": [...], "options": {...}}`, one entry per objectId-named entity (same shape every other HOMEd service uses).
-- `"<N>"` — one entry per special entity (light/cover/climate/lock/non-config switch), `{"name": "...", "items": [...], "options": {...}}`. `N` is a small stable integer assigned on first discovery and persisted in the device database; if the entity disappears from the ESPHome device it's not published here anymore, but `N` stays reserved for it (matched back up by name) in case it reappears.
+- `"<N>"` — one entry per special entity (light/cover/climate/lock/non-config switch), `{"items": [...], "options": {"name": "...", ...}}`. `N` is a small stable integer assigned on first discovery and persisted in the device database; if the entity disappears from the ESPHome device it's not published here anymore, but `N` stays reserved for it (matched back up by name) in case it reappears.

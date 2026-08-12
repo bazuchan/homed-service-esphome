@@ -99,8 +99,8 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
 
             if (ep->meta().value("special").toBool())
             {
-                // "name" sits beside "options", not inside it -- options must stay title-free (see esphome.cpp's light/cover/switch comments)
                 QMap<QString, QVariant> options;
+                options.insert("name", ep->meta().value("title").toString());
 
                 if (entityType == "light")
                 {
@@ -123,10 +123,8 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                 // switch/lock/cover: nothing else populated yet (see esphome.cpp)
 
                 QMap<QString, QVariant> slotData;
-                slotData.insert("name", ep->meta().value("title").toString());
                 slotData.insert("items", QVariant(epItems));
-                if (!options.isEmpty())
-                    slotData.insert("options", options);
+                slotData.insert("options", options);
 
                 data.insert(QString::number(it.key()), slotData);
             }

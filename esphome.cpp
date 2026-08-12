@@ -1074,7 +1074,7 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
         {
             case MsgType::StateSwitch:
                 if (f.field() == 2 && f.wireType() == 0)
-                    state.insert("status", f.boolean() ? "on" : "off");
+                    state.insert("_switchState", f.boolean() ? "on" : "off"); // "status" (special) or objectId (common toggle) -- resolved once we know which, below
                 break;
 
             case MsgType::StateBinary:
@@ -1156,8 +1156,8 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
 
     // Proto3 omits default (false/zero-enum) values — supply the explicit
     // zero-value default (matches each field's own enum ordering above)
-    if (type == MsgType::StateSwitch && !state.contains("status"))
-        state.insert("status", "off");
+    if (type == MsgType::StateSwitch && !state.contains("_switchState"))
+        state.insert("_switchState", "off");
     else if (type == MsgType::StateBinary && !state.contains("_state"))
         state.insert("_state", false);
     else if (type == MsgType::StateLight && !state.contains("status"))
@@ -1255,6 +1255,13 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     {
         state.insert(objectId, state.value("_state"));
         state.remove("_state");
+    }
+
+    // Switch: "status" for a special switch (its own dedicated topic, matches SwitchObject's HA template), objectId for a common-bucket toggle (like every other common item)
+    if (state.contains("_switchState"))
+    {
+        state.insert(ep->meta().value("special").toBool() ? "status" : objectId, state.value("_switchState"));
+        state.remove("_switchState");
     }
 
     // Update endpoint state
