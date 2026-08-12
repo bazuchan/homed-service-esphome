@@ -223,6 +223,17 @@ void EspHomeDevice::onDisconnected(void)
     {
         m_device->setAvailability(Availability::Offline);
         emit availabilityChanged(m_device.data());
+
+        // sub-devices share this connection -- they're unreachable too now, same as the parent
+        for (auto it = m_subDeviceNames.begin(); it != m_subDeviceNames.end(); it++)
+        {
+            Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address(), mqttSafe(it.value())));
+            if (sub.isNull())
+                continue;
+
+            sub->setAvailability(Availability::Offline);
+            emit availabilityChanged(sub.data());
+        }
     }
 
     if (m_device->active())
@@ -709,14 +720,21 @@ void EspHomeDevice::applyDiscoveredEntities(void)
 }
 
 // Finds (creating and persisting if needed) the DeviceObject representing an ESPHome
-// sub-device -- address is "<parent address>_<deviceId>" (stable even if the sub-device
-// is renamed in the ESPHome config, unlike its display name), port/key are copied from
-// the parent purely so DeviceList::parse()'s non-empty checks pass (a sub-device never
-// opens its own connection -- see EspHomeManager::connectAll()/sendCommand()).
+// sub-device -- address is "<parent address>_<name>", not "<parent address>_<deviceId>":
+// device_id is ESPHome's own auto-assigned wire integer (declaration-order-based, not a
+// stable identifier -- reordering/adding/removing sub-devices in the YAML can reassign
+// it), so keying on it would silently orphan a previously-discovered sub-device's whole
+// objectId/specialSlots mapping the moment its id shifted. The declared name is the
+// stable, user-controlled identity instead (same reasoning as specialSlots' name-match
+// reservation for entities) -- a sub-device that stops being reported (removed from the
+// ESPHome config, or the parent temporarily offline) is simply left untouched here, never
+// deleted, so its mapping is intact if it's ever reconfigured back. port/key are copied
+// from the parent purely so DeviceList::parse()'s non-empty checks pass (a sub-device
+// never opens its own connection -- see EspHomeManager::connectAll()/sendCommand()).
 Device EspHomeDevice::subDevice(quint32 deviceId)
 {
     QString subName = m_subDeviceNames.value(deviceId, QString::number(deviceId));
-    QString address = QString("%1_%2").arg(m_device->address()).arg(deviceId);
+    QString address = QString("%1_%2").arg(m_device->address(), mqttSafe(subName));
     Device sub = m_devices->byHost(address);
 
     if (sub.isNull())
@@ -731,6 +749,7 @@ Device EspHomeDevice::subDevice(quint32 deviceId)
     sub->setManufacturerName(m_device->manufacturerName());
     sub->setModelName(QString("Subdev %1 of %2").arg(subName, m_device->name()));
     sub->setParentAddress(m_device->address());
+    sub->setAvailability(Availability::Online); // shares the parent's connection, so successfully discovering it here means it's reachable
 
     return sub;
 }
@@ -1249,7 +1268,7 @@ bool EspHomeDevice::findEndpointByKey(quint32 key, Device &outDevice, quint8 &ou
 
     for (auto devIt = m_subDeviceNames.begin(); devIt != m_subDeviceNames.end(); devIt++)
     {
-        Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address()).arg(devIt.key()));
+        Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address(), mqttSafe(devIt.value())));
         if (sub.isNull())
             continue;
 
