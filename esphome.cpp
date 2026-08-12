@@ -7,6 +7,12 @@ static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
 static const int HANDSHAKE_TIMEOUT  = 15000;  // 15 seconds -- TCP connects but the device never completes (or never starts) the ESPHome handshake
 
+// mqttSafe() doesn't touch spaces; used consistently by subDevice()/findEndpointByKey()/onDisconnected() so their address lookups keep matching.
+static QString subDeviceAddressSuffix(const QString &name)
+{
+    return mqttSafe(name).replace(' ', '_');
+}
+
 // homed-web's exposeMeta() (js/expose.js) parses every objectId as
 // expose.split('_'), taking list[0] as the display name and list[1] (if
 // numeric) as a disambiguating suffix appended back onto the title. An
@@ -225,12 +231,8 @@ void EspHomeDevice::onDisconnected(void)
         emit availabilityChanged(m_device.data());
 
         // sub-devices share this connection -- they're unreachable too now, same as the parent
-        for (auto it = m_subDeviceNames.begin(); it != m_subDeviceNames.end(); it++)
+        for (const auto &sub : knownSubDevices())
         {
-            Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address(), mqttSafe(it.value())));
-            if (sub.isNull())
-                continue;
-
             sub->setAvailability(Availability::Offline);
             emit availabilityChanged(sub.data());
         }
@@ -506,6 +508,13 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
         case MsgType::PingResponse:
             m_device->updateLastSeen();
             emit lastSeenUpdated(m_device.data());
+
+            // sub-devices share this connection -- a ping response confirms they're just as reachable as the parent
+            for (const auto &sub : knownSubDevices())
+            {
+                sub->updateLastSeen();
+                emit lastSeenUpdated(sub.data());
+            }
             break;
 
         case MsgType::DisconnectRequest:
@@ -734,7 +743,7 @@ void EspHomeDevice::applyDiscoveredEntities(void)
 Device EspHomeDevice::subDevice(quint32 deviceId)
 {
     QString subName = m_subDeviceNames.value(deviceId, QString::number(deviceId));
-    QString address = QString("%1_%2").arg(m_device->address(), mqttSafe(subName));
+    QString address = QString("%1_%2").arg(m_device->address(), subDeviceAddressSuffix(subName));
     Device sub = m_devices->byHost(address);
 
     if (sub.isNull())
@@ -1251,8 +1260,23 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     for (auto it = state.begin(); it != state.end(); it++)
         ep->setState(it.key(), it.value());
 
-    m_device->updateLastSeen(); // last-seen tracks the physical connection, not the specific (sub-)device the state belongs to
+    device->updateLastSeen(); // credited to whichever (sub-)device the state actually came from
     emit stateChanged(device.data(), endpointId);
+}
+
+// This connection's currently-known sub-devices, shared by lastSeen/availability propagation and findEndpointByKey().
+QList<Device> EspHomeDevice::knownSubDevices(void) const
+{
+    QList<Device> list;
+
+    for (auto it = m_subDeviceNames.begin(); it != m_subDeviceNames.end(); it++)
+    {
+        Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address(), subDeviceAddressSuffix(it.value())));
+        if (!sub.isNull())
+            list.append(sub);
+    }
+
+    return list;
 }
 
 bool EspHomeDevice::findEndpointByKey(quint32 key, Device &outDevice, quint8 &outEndpointId) const
@@ -1266,12 +1290,8 @@ bool EspHomeDevice::findEndpointByKey(quint32 key, Device &outDevice, quint8 &ou
         return true;
     }
 
-    for (auto devIt = m_subDeviceNames.begin(); devIt != m_subDeviceNames.end(); devIt++)
+    for (const auto &sub : knownSubDevices())
     {
-        Device sub = m_devices->byHost(QString("%1_%2").arg(m_device->address(), mqttSafe(devIt.value())));
-        if (sub.isNull())
-            continue;
-
         for (auto it = sub->endpoints().begin(); it != sub->endpoints().end(); it++)
         {
             if (it.value()->meta().value("key").toUInt() != key)

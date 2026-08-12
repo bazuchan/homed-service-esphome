@@ -130,6 +130,7 @@ private:
     void applyDiscoveredEntities(void);
     void applyEntitiesToDevice(const Device &device, const QList<EntityInfo> &entities);
     Device subDevice(quint32 deviceId);
+    QList<Device> knownSubDevices(void) const;
 
     bool findEndpointByKey(quint32 key, Device &outDevice, quint8 &outEndpointId) const;
 };
