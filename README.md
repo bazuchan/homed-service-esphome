@@ -42,7 +42,7 @@ See [COMMANDS.md](COMMANDS.md) for the full list of commands and entity control 
 /usr/share/homed-web/esphome-patcher.sh
 ```
 
-If [homed-service-web#26](https://github.com/u236/homed-service-web/pull/26) gets merged upstream, this patch step will no longer be needed.
+If [plugins branch](https://github.com/u236/homed-service-web/compare/plugins) gets merged and released, this patch step will no longer be needed.
 
 ## Releases
 
