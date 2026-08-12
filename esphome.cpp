@@ -870,19 +870,20 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             QVariantMap opts = {{"title", title}};
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
 
-            ep->exposes().append(QSharedPointer<SwitchObject>::create());
-
             if (info.toggleCategory)
             {
-                // config/diagnostic switches aren't a device's primary function -- route through "common" as a toggle, like select/number/button
+                // config/diagnostic switches route through "common" like select/number/button -- SwitchObject's name is hardcoded "switch" (would collide across multiple such switches), so use the bare objectId-named ExposeObject instead (no HA discovery, fine for a secondary control)
                 opts.insert("type", "toggle");
+                opts.insert("control", true);
                 device->options().insert(objectId, opts);
+                ep->exposes().append(QSharedPointer<ExposeObject>::create(objectId));
             }
             else
             {
                 // SwitchObject's name is hardcoded "switch" -- title() resolves "switch_<endpointId>" then "switch", never objectId
                 device->options().insert(QString("switch_%1").arg(endpointId), opts);
                 device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
+                ep->exposes().append(QSharedPointer<SwitchObject>::create());
             }
         }
         else if (info.type == "lock")
