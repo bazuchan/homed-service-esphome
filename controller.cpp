@@ -103,8 +103,6 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                 options.insert("name", ep->meta().value("title").toString());
 
                 QString icon = ep->meta().value("icon").toString();
-                if (!icon.isEmpty())
-                    options.insert("icon", icon);
 
                 if (entityType == "light")
                 {
@@ -113,6 +111,9 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
 
                     QVariant ctOpt = device->options().value(objectId + "_colorTemperature");
                     if (ctOpt.isValid()) options.insert("colorTemperature", ctOpt);
+
+                    if (!icon.isEmpty())
+                        options.insert("icon", icon);
                 }
                 else if (entityType == "climate")
                 {
@@ -123,6 +124,18 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
                         if (opt.isValid())
                             options.insert(key, opt);
                     }
+
+                    // homed-web's iconName() resolves a thermostat row's icon from options[<that row's own property>].icon, not a top-level options.icon -- "targetTemperature" is the row users actually see/interact with
+                    if (!icon.isEmpty())
+                    {
+                        QVariantMap targetTemperature = options.value("targetTemperature").toMap();
+                        targetTemperature.insert("icon", icon);
+                        options.insert("targetTemperature", targetTemperature);
+                    }
+                }
+                else if (!icon.isEmpty())
+                {
+                    options.insert("icon", icon);
                 }
                 // switch/lock/cover: nothing else populated yet (see esphome.cpp)
 
