@@ -30,47 +30,24 @@ ESPHome devices that group entities under [sub-devices](https://esphome.io/compo
 
 A sub-device that stops being reported (removed from the ESPHome config, or the parent simply offline) is never deleted on its own — it's left in the database exactly as last seen, so if it's ever reconfigured back it picks up its previous `objectId`/expose mapping again rather than starting over as a new device. Only an explicit `removeDevice` command deletes it — and removing a parent this way also removes its sub-devices, since they can't function without it.
 
-## MQTT commands
-
-See [COMMANDS.md](COMMANDS.md) for the full list of commands and entity control payloads.
-
 ## Web UI
 
-`homed-web` needs to be patched to add ESPHome support, after installing, run:
+~~`homed-web` needs to be patched to add ESPHome support, after installing, run: `/usr/share/homed-web/esphome-patcher.sh`~~
 
-```sh
-/usr/share/homed-web/esphome-patcher.sh
-```
+Since homed-web version 0.14 no patching is needed.
 
-If [plugins branch](https://github.com/u236/homed-service-web/compare/plugins) gets merged and released, this patch step will no longer be needed.
+## Configuration
+
+Edit `/etc/homed/homed-esphome.conf` and adjust the MQTT settings before running.
 
 ## Releases
 
 Prebuilt packages are available on the [Releases](https://github.com/bazuchan/homed-service-esphome/releases) page, covering the same platforms as [homed](https://wiki.homed.dev/) itself.
 
+## MQTT commands
+
+See [COMMANDS.md](COMMANDS.md) for the full list of commands and entity control payloads.
+
 ## Building
 
-Requires Qt5 (with MQTT module) development libraries. [homed-service-common](https://github.com/u236/homed-service-common) is cloned automatically if not present.
-
-```sh
-./build.sh
-```
-
-This clones `homed-service-common` into `../homed-common` (sibling of the repo directory) if the directory does not exist, then runs `qmake` and `make`. The resulting binary is `homed-esphome`.
-
-### Debian package
-
-```sh
-./build-deb.sh
-```
-
-Produces `homed-esphome_<version>_<arch>.deb` in the current directory. The package installs:
-
-| Path | Content |
-|------|---------|
-| `/usr/bin/homed-esphome` | Service binary |
-| `/lib/systemd/system/homed-esphome.service` | systemd unit (enabled and started on install) |
-| `/etc/homed/homed-esphome.conf` | Default configuration (marked as conffile) |
-| `/opt/homed-esphome/` | Runtime data directory |
-
-Copy `/etc/homed/homed-esphome.conf` and adjust the MQTT settings before running.
+See [BUILDING.md](BUILDING.md) for building instructions.
