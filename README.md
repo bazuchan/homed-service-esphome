@@ -51,3 +51,9 @@ See [COMMANDS.md](COMMANDS.md) for the full list of commands and entity control 
 ## Building
 
 See [BUILDING.md](BUILDING.md) for building instructions.
+
+## Screenshots
+
+![Device list](screenshots/homed1.png)
+
+![AC device](screenshots/homed2.png)
