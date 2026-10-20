@@ -97,6 +97,7 @@ class ESPHome extends DeviceService
                 this.updatePage();
             }
 
+            this.ready = true;
             return;
         }
 
