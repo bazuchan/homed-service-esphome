@@ -265,6 +265,7 @@ void Controller::publishStatus(void)
         DeviceObject *device = m_devices->at(i).data();
         QJsonObject json;
         json.insert("name",             device->name());
+        json.insert("id",               device->address());
         json.insert("host",             device->host());
         json.insert("port",             device->port());
         json.insert("manufacturerName", device->manufacturerName());
