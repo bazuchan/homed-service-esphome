@@ -181,6 +181,7 @@ void EspHomeDevice::disconnectFromDevice(void)
 
 void EspHomeDevice::onConnected(void)
 {
+    m_reconnectTimer->stop();
     logInfo << m_device << "TCP connected";
     m_state = State::ClientHello;
     m_handshakeTimer->start();
@@ -246,6 +247,10 @@ void EspHomeDevice::onError(QAbstractSocket::SocketError error)
 {
     logWarning << m_device << "socket error:" << m_socket->errorString();
     Q_UNUSED(error)
+
+    // Failed connection attempts may emit errorOccurred without disconnected; retry outside the error handler.
+    if (m_device->active())
+        m_reconnectTimer->start();
 }
 
 void EspHomeDevice::onPingTimer(void)
@@ -256,8 +261,13 @@ void EspHomeDevice::onPingTimer(void)
 
 void EspHomeDevice::onReconnectTimer(void)
 {
+    m_socket->abort();
+    // abort() can emit disconnected and re-arm this timer synchronously.
+    m_reconnectTimer->stop();
     m_state = State::Disconnected;
-    connectToDevice();
+
+    if (m_device->active())
+        connectToDevice();
 }
 
 void EspHomeDevice::onHandshakeTimer(void)
