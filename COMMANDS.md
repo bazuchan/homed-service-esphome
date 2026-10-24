@@ -7,10 +7,12 @@ All commands are published to `homed/command/esphome` as a retained JSON message
 Adds a device and immediately connects to it.
 
 ```json
-{"action": "addDevice", "host": "192.168.1.100", "key": "<base64-encoded 32-byte noise key>", "port": 6053, "name": "my-device"}
+{"action": "addDevice", "host": "192.168.1.100", "key": "<base64-encoded 32-byte noise key>", "port": 6053, "name": "my-device", "discovery": false, "cloud": false}
 ```
 
 `port` defaults to `6053`. `name` is optional — defaults to the sanitized hostname. The key is the `api_encryption.key` value from the ESPHome device config (base64, 32 bytes).
+
+`discovery` and `cloud` are optional and default to `true` when omitted from an MQTT command. The web add-device form starts with both checkboxes checked and sends their values explicitly. `discovery` controls Home Assistant discovery. `cloud` is saved per device and published in the service status for HOMEd Cloud. Newly discovered sub-devices inherit their parent's cloud flag; subsequent edits are independent.
 
 ## removeDevice
 
@@ -25,10 +27,10 @@ Disconnects and removes a device. `device` can be the device name or hostname.
 Updates device properties without reconnecting.
 
 ```json
-{"action": "updateDevice", "device": "my-device", "name": "new-name", "active": true, "discovery": true}
+{"action": "updateDevice", "device": "my-device", "name": "new-name", "active": true, "discovery": true, "cloud": true}
 ```
 
-All fields except `device` are optional.
+All fields except `action` and `device` are optional. Omitting `cloud` preserves its current value. The cloud flag does not disable local MQTT or Home Assistant discovery.
 
 ## getProperties
 

@@ -162,13 +162,14 @@ class ESPHome extends DeviceService
                         case 1: cell.innerHTML = '<span class="value">' + device.info.host + '</span>'; cell.classList.add('mobileHidden'); break;
                         case 2: cell.innerHTML = device.info.esphomeVersion ?? ''; cell.classList.add('mobileHidden'); break;
                         case 3: cell.innerHTML = this.parseValue(device.info, 'discovery'); cell.classList.add('center', 'mobileHidden'); break;
+                        case 4: cell.innerHTML = this.parseValue(device.info, 'cloud'); cell.classList.add('center', 'mobileHidden'); break;
                     }
                 }
             });
 
             table.querySelectorAll('th.sort').forEach(cell => cell.addEventListener('click', function() { sortTable(table, this.dataset.index); localStorage.setItem('homedESPHomeSort', this.dataset.index); }));
             sortTable(table, localStorage.getItem('homedESPHomeSort') ?? 0);
-            addTableSearch(table, 'devices', 'device', 5, [0, 1]);
+            addTableSearch(table, 'devices', 'device', 6, [0, 1]);
         });
     }
 
@@ -176,6 +177,9 @@ class ESPHome extends DeviceService
     {
         loadHTML('deviceAdd.html', this, modal.querySelector('.data'), function()
         {
+            modal.querySelector('input[name="discovery"]').checked = true;
+            modal.querySelector('input[name="cloud"]').checked = true;
+
             modal.querySelector('.add').addEventListener('click', function()
             {
                 let host = modal.querySelector('input[name="host"]').value.trim();
@@ -186,7 +190,7 @@ class ESPHome extends DeviceService
 
                 let port = parseInt(modal.querySelector('input[name="port"]').value) || 6053;
                 let name = modal.querySelector('input[name="name"]').value.trim();
-                let cmd  = {action: 'addDevice', host: host, key: key, port: port};
+                let cmd  = {action: 'addDevice', host: host, key: key, port: port, discovery: modal.querySelector('input[name="discovery"]').checked, cloud: modal.querySelector('input[name="cloud"]').checked};
 
                 if (name)
                     cmd.name = name;
@@ -211,6 +215,7 @@ class ESPHome extends DeviceService
             modal.querySelector('input[name="name"]').value = device.info.name != device.id ? device.info.name : '';
             modal.querySelector('input[name="name"]').placeholder = device.id;
             modal.querySelector('input[name="discovery"]').checked = device.info.discovery;
+            modal.querySelector('input[name="cloud"]').checked = device.info.cloud ?? true;
             modal.querySelector('input[name="active"]').checked = device.info.active;
 
             modal.querySelector('.save').addEventListener('click', function()

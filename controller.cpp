@@ -273,6 +273,7 @@ void Controller::publishStatus(void)
         json.insert("lastSeen",         device->lastSeen());
         json.insert("active",           device->active());
         json.insert("discovery",        device->discovery());
+        json.insert("cloud",            device->cloud());
 
         if (!device->parentAddress().isEmpty())
         {
@@ -362,6 +363,8 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                     name = mqttSafe(host);
 
                 auto device = Device(new DeviceObject(name, host, port, keyBytes));
+                device->setDiscovery(json.value("discovery").toBool(true));
+                device->setCloud(json.value("cloud").toBool(true));
                 m_devices->append(device);
                 m_devices->store();
 
@@ -431,6 +434,8 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                     device->setActive(json.value("active").toBool());
                 if (json.contains("discovery"))
                     device->setDiscovery(json.value("discovery").toBool());
+                if (json.contains("cloud"))
+                    device->setCloud(json.value("cloud").toBool());
 
                 m_devices->store();
                 publishExposes(device.data());

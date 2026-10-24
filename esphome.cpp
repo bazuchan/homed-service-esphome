@@ -750,6 +750,7 @@ Device EspHomeDevice::subDevice(quint32 deviceId)
     {
         sub = Device(new DeviceObject(subName, address, m_device->port(), m_device->encryptionKey()));
         sub->setParentAddress(m_device->address());
+        sub->setCloud(m_device->cloud());
         m_devices->append(sub);
         logInfo << m_device << "discovered sub-device" << subName << "(id" << deviceId << ")";
     }
