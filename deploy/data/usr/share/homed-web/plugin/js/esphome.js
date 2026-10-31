@@ -49,14 +49,14 @@ class ESPHome extends DeviceService
 
             message.devices.forEach(device =>
             {
-                device.id = device.host;
+                device.id = device.id ?? device.host;
 
                 if (!device.name)
                     device.name = device.id;
 
                 if (!this.devices[device.id])
                 {
-                    let item = this.names ? device.name : device.host;
+                    let item = this.names ? device.name : device.id;
 
                     this.devices[device.id] = new Device(this.service, device.id);
                     this.controller.socket.subscribe('expose/' + this.service + '/' + item);
@@ -82,7 +82,7 @@ class ESPHome extends DeviceService
 
             Object.keys(this.devices).forEach(id =>
             {
-                if (message.devices.filter(device => device.host == id).length)
+                if (message.devices.filter(device => device.id == id).length)
                     return;
 
                 delete this.devices[id];
@@ -92,7 +92,7 @@ class ESPHome extends DeviceService
             if (this.controller.service == this.service)
             {
                 if (check)
-                    this.controller.showPage(this.service);
+                    this.controller.showPage(this.controller.page);
 
                 this.updatePage();
             }
@@ -107,7 +107,7 @@ class ESPHome extends DeviceService
     showPage(data)
     {
         let menu = document.querySelector('.menu');
-        let list = data ? data.split('=') : new Array();
+        let list = data ? data.split(/=(.*)/) : new Array();
         let device;
 
         menu.innerHTML  = '<span id="list"><i class="mdi-menu"></i> List</span>';
