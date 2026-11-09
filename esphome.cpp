@@ -5,6 +5,8 @@
 
 static const int RECONNECT_INTERVAL = 10000;  // 10 seconds
 static const int PING_INTERVAL      = 60000;  // 60 seconds
+static const int PING_RESPONSE_TIMEOUT = 15000;
+static const int DISCOVERY_TIMEOUT  = 60000;  // Absolute deadline from Noise completion through ListEntitiesDone
 static const int HANDSHAKE_TIMEOUT  = 15000;  // 15 seconds -- TCP connects but the device never completes (or never starts) the ESPHome handshake
 
 // mqttSafe() doesn't touch spaces; used consistently by subDevice()/findEndpointByKey()/onDisconnected() so their address lookups keep matching.
@@ -135,6 +137,8 @@ EspHomeDevice::EspHomeDevice(const Device &device, DeviceList *devices, QObject 
     m_pingTimer = new QTimer(this);
     m_reconnectTimer = new QTimer(this);
     m_handshakeTimer = new QTimer(this);
+    m_discoveryTimer = new QTimer(this);
+    m_pingResponseTimer = new QTimer(this);
 
     m_pingTimer->setInterval(PING_INTERVAL);
     m_pingTimer->setSingleShot(false);
@@ -142,6 +146,10 @@ EspHomeDevice::EspHomeDevice(const Device &device, DeviceList *devices, QObject 
     m_reconnectTimer->setSingleShot(true);
     m_handshakeTimer->setInterval(HANDSHAKE_TIMEOUT);
     m_handshakeTimer->setSingleShot(true);
+    m_discoveryTimer->setInterval(DISCOVERY_TIMEOUT);
+    m_discoveryTimer->setSingleShot(true);
+    m_pingResponseTimer->setInterval(PING_RESPONSE_TIMEOUT);
+    m_pingResponseTimer->setSingleShot(true);
 
     connect(m_socket, &QTcpSocket::connected, this, &EspHomeDevice::onConnected);
     connect(m_socket, &QTcpSocket::disconnected, this, &EspHomeDevice::onDisconnected);
@@ -150,6 +158,8 @@ EspHomeDevice::EspHomeDevice(const Device &device, DeviceList *devices, QObject 
     connect(m_pingTimer, &QTimer::timeout, this, &EspHomeDevice::onPingTimer);
     connect(m_reconnectTimer, &QTimer::timeout, this, &EspHomeDevice::onReconnectTimer);
     connect(m_handshakeTimer, &QTimer::timeout, this, &EspHomeDevice::onHandshakeTimer);
+    connect(m_discoveryTimer, &QTimer::timeout, this, &EspHomeDevice::onDiscoveryTimer);
+    connect(m_pingResponseTimer, &QTimer::timeout, this, &EspHomeDevice::onPingResponseTimer);
 }
 
 EspHomeDevice::~EspHomeDevice(void)
@@ -177,6 +187,8 @@ void EspHomeDevice::disconnectFromDevice(void)
     m_pingTimer->stop();
     m_reconnectTimer->stop();
     m_handshakeTimer->stop();
+    m_discoveryTimer->stop();
+    m_pingResponseTimer->stop();
     m_state = State::Disconnected;
     m_socket->disconnectFromHost();
 }
@@ -219,6 +231,8 @@ void EspHomeDevice::onDisconnected(void)
     logInfo << m_device << "disconnected";
     m_pingTimer->stop();
     m_handshakeTimer->stop();
+    m_discoveryTimer->stop();
+    m_pingResponseTimer->stop();
     m_rxBuf.clear();
     m_noiseHandshakeState = 0;
 
@@ -257,8 +271,11 @@ void EspHomeDevice::onError(QAbstractSocket::SocketError error)
 
 void EspHomeDevice::onPingTimer(void)
 {
-    if (m_state == State::Ready || m_state == State::Subscribe)
-        sendMessage(MsgType::PingRequest);
+    if (m_state != State::Subscribe || m_pingResponseTimer->isActive())
+        return;
+
+    m_pingResponseTimer->start();
+    sendMessage(MsgType::PingRequest);
 }
 
 void EspHomeDevice::onReconnectTimer(void)
@@ -285,6 +302,22 @@ void EspHomeDevice::onHandshakeTimer(void)
     // immediately regardless, and still triggers onDisconnected() -> the
     // normal m_reconnectTimer path.
     logWarning << m_device << "handshake timed out after" << HANDSHAKE_TIMEOUT / 1000 << "s, reconnecting";
+    m_socket->abort();
+}
+
+void EspHomeDevice::onDiscoveryTimer(void)
+{
+    if (m_state != State::Ready && m_state != State::ListEntities)
+        return;
+    logWarning << m_device << "API discovery timed out after" << DISCOVERY_TIMEOUT / 1000 << "s, reconnecting";
+    m_socket->abort();
+}
+
+void EspHomeDevice::onPingResponseTimer(void)
+{
+    if (m_state != State::Subscribe)
+        return;
+    logWarning << m_device << "ping response timed out after" << PING_RESPONSE_TIMEOUT / 1000 << "s, reconnecting";
     m_socket->abort();
 }
 
@@ -359,10 +392,7 @@ void EspHomeDevice::onReadyRead(void)
             logInfo << m_device << "noise handshake complete";
             m_state = State::Ready;
             m_handshakeTimer->stop();
-            m_pingTimer->start();
-
-            m_device->updateLastSeen();
-            m_device->setAvailability(Availability::Online);
+            m_discoveryTimer->start();
 
             // Send HelloRequest
             ProtoEncoder hello;
@@ -436,6 +466,8 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
     {
         case MsgType::HelloResponse:
         {
+            if (m_state != State::Ready)
+                break;
             auto fields = ProtoDecoder::decode(payload);
             for (const auto &f : fields)
             {
@@ -450,6 +482,8 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
 
         case MsgType::DeviceInfoResponse:
         {
+            if (m_state != State::Ready)
+                break;
             auto fields = ProtoDecoder::decode(payload);
             m_subDeviceNames.clear();
             for (const auto &f : fields)
@@ -496,13 +530,20 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
         case MsgType::ListEntitiesSelect:
         case MsgType::ListEntitiesLock:
         case MsgType::ListEntitiesButton:
-            processEntityInfo(type, payload);
+            if (m_state == State::ListEntities)
+                processEntityInfo(type, payload);
             break;
 
         case MsgType::ListEntitiesDone:
+            if (m_state != State::ListEntities)
+                break;
+            m_discoveryTimer->stop();
+            m_device->updateLastSeen();
+            m_device->setAvailability(Availability::Online);
             applyDiscoveredEntities(); // emits entitiesDiscovered for the main device and any sub-devices
             m_state = State::Subscribe;
             sendMessage(MsgType::SubscribeStates);
+            m_pingTimer->start();
             break;
 
         case MsgType::StateBinary:
@@ -518,7 +559,14 @@ void EspHomeDevice::processMessage(quint16 type, const QByteArray &payload)
             processStateUpdate(type, payload);
             break;
 
+        case MsgType::PingRequest:
+            sendMessage(MsgType::PingResponse);
+            break;
+
         case MsgType::PingResponse:
+            if (m_state != State::Subscribe || !m_pingResponseTimer->isActive())
+                break;
+            m_pingResponseTimer->stop();
             m_device->updateLastSeen();
             emit lastSeenUpdated(m_device.data());
 

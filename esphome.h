@@ -86,6 +86,8 @@ private slots:
     void onPingTimer(void);
     void onReconnectTimer(void);
     void onHandshakeTimer(void);
+    void onDiscoveryTimer(void);
+    void onPingResponseTimer(void);
 
 private:
 
@@ -93,6 +95,7 @@ private:
     DeviceList *m_devices; // shared list this connection's main device (and any sub-devices it discovers) live in -- see subDevice()
     QTcpSocket *m_socket;
     QTimer *m_pingTimer, *m_reconnectTimer, *m_handshakeTimer;
+    QTimer *m_discoveryTimer, *m_pingResponseTimer;
     State m_state;
     NoiseNNpsk0 *m_noise;
     QByteArray m_rxBuf; // accumulates TCP stream data

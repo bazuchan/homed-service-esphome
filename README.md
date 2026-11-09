@@ -40,6 +40,14 @@ Inactive devices reject commands, publish no `fd` readings and report offline. D
 
 Disabling just a sub-device does not interrupt its parent or siblings. Incoming data may still refresh its internal cache, but is not published until it is enabled again. A sub-device cannot operate while its parent is inactive or missing.
 
+## Connection deadlines
+
+After the Noise handshake, the service allows 60 seconds for the API exchange (`HelloResponse`, `DeviceInfoResponse` and the entity list ending in `ListEntitiesDone`). This is an absolute deadline: partial entity lists and other traffic do not extend it. The device is marked online only when discovery completes.
+
+After discovery, a ping is sent every 60 seconds. Its `PingResponse` must arrive within 15 seconds; state updates and incoming server pings do not extend this deadline. Server `PingRequest` messages receive a `PingResponse` without acknowledging our own outstanding ping.
+
+Either timeout aborts the socket, marks the parent and its sub-devices offline, and schedules the normal retry after 10 seconds while the parent remains active. Disconnecting stops both deadline timers.
+
 ## State values
 
 ESPHome state responses are snapshots: omitted proto3 values mean zero, false or an empty string, not the previous reading. Optional light and climate readings are defaulted only when supported. Modern cover position defaults to zero (closed), including open/close-only covers.
