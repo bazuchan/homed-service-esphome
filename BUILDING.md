@@ -14,7 +14,7 @@ This clones `homed-service-common` into `../homed-common` (sibling of the repo d
 python3 tools/test-entity-cache.py
 ```
 
-Requires Python 3, g++, Qt5 Core development files and `moc` (Debian-style paths). An optional argument selects a Qt installation root instead of `/usr`. The tests use the production discovery builder, state handler, protobuf codec, database code and homed-common expose classes. They check JSON/disk round-trips, endpoint IDs, HA requests, legacy-cache migration, omitted proto3 values, missing readings, name conflicts, retained-topic cleanup on rename, sub-device display names, Active filtering, parent/sub-device isolation, discovery deadlines and ping-response timeouts. The timeout tests use real Qt timers with shortened intervals and a simulated socket; they do not exercise the Noise/TCP transport end to end. They do not start MQTT or connect to ESPHome devices.
+Requires Python 3, g++, Qt5 Core development files and `moc` (Debian-style paths). An optional argument selects a Qt installation root instead of `/usr`. The tests use the production discovery builder, state handler, protobuf codec, database code and homed-common expose classes. They check JSON/disk round-trips, endpoint IDs, HA requests, legacy-cache migration, omitted proto3 values, missing readings, name conflicts, retained-topic cleanup on rename, sub-device display names, Active filtering, parent/sub-device isolation, discovery deadlines, ping-response timeouts and HA config cleanup across entity changes, offline publication and restart. The timeout tests use real Qt timers with shortened intervals and a simulated socket; they do not exercise the Noise/TCP transport end to end. They do not start MQTT or connect to ESPHome devices.
 
 ## Debian package
 

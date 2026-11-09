@@ -24,6 +24,10 @@ Controller::Controller(const QString &configFile)
     connect(m_esphome, &EspHomeManager::lastSeenUpdated, this, &Controller::publishDeviceStatus);
 
     m_devices->init();
+    // Seed older databases from their restored entity cache before live discovery replaces it.
+    for (const auto &device : *m_devices)
+        if (device->entitiesReady())
+            rememberHaDiscoveryTopics(device.data());
     m_esphome->connectAll();
 }
 
@@ -71,15 +75,15 @@ static QString haSafeId(const QString &value)
 
 void Controller::publishExposes(DeviceObject *device, bool remove)
 {
+    QString devTopic = deviceTopic(device);
+
+    // Built ourselves rather than via DeviceObject::publishExposes() (homed-common) to match our shared fd/td topics.
+    if (m_haEnabled || remove)
+        publishHaDiscovery(device, devTopic, remove);
+
     // Never replace retained descriptions with a partial legacy cache while the device is offline.
     if (!remove && !device->entitiesReady())
         return;
-
-    QString devTopic = deviceTopic(device);
-
-    // Built ourselves rather than via DeviceObject::publishExposes() (homed-common) -- that also republishes a colliding numeric-endpoint-keyed copy and doesn't know about our shared fd//td topics.
-    if (m_haEnabled)
-        publishHaDiscovery(device, devTopic, remove);
 
     // light/cover/climate/non-toggle switch get a stable numbered key (esphome.cpp's DeviceObject::specialSlots()); everything else is objectId-named and shares "common".
     if (!remove)
@@ -175,8 +179,57 @@ void Controller::publishExposes(DeviceObject *device, bool remove)
     }
 }
 
+QStringList Controller::haDiscoveryTopics(DeviceObject *device)
+{
+    QString nodeId = QString("%1_%2").arg(uniqueId(), haSafeId(device->address()));
+    QStringList topics;
+    for (const auto &endpoint : device->endpoints())
+    {
+        QString objectId = endpoint->meta().value("objectId").toString();
+        if (objectId.isEmpty())
+            continue;
+        for (const auto &expose : endpoint->exposes())
+        {
+            if (!expose->discovery())
+                continue;
+            QString topic = QString("%1/%2/%3/%4/config").arg(m_haPrefix, expose->component(), nodeId, objectId);
+            if (!topics.contains(topic))
+                topics.append(topic);
+        }
+    }
+    return topics;
+}
+
+void Controller::rememberHaDiscoveryTopics(DeviceObject *device)
+{
+    QStringList topics = device->haDiscoveryTopics();
+    for (const auto &topic : haDiscoveryTopics(device))
+        if (!topics.contains(topic))
+            topics.append(topic);
+    if (topics == device->haDiscoveryTopics())
+        return;
+
+    // Keep historical topics as tombstones: publishing is not a broker acknowledgement, so retry cleanup on reconnect.
+    device->setHaDiscoveryTopics(topics);
+    m_devices->store(true);
+}
+
 void Controller::publishHaDiscovery(DeviceObject *device, const QString &devTopic, bool remove)
 {
+    if (!remove && device->discovery() && !device->entitiesReady())
+        return;
+
+    rememberHaDiscoveryTopics(device);
+    if (!mqttStatus())
+        return;
+
+    QStringList current = !remove && device->discovery() ? haDiscoveryTopics(device) : QStringList();
+    for (const auto &topic : device->haDiscoveryTopics())
+        if (!current.contains(topic))
+            mqttPublish(topic, QJsonObject(), true);
+    if (remove || !device->discovery())
+        return;
+
     QString nodeId = QString("%1_%2").arg(uniqueId(), haSafeId(device->address()));
     QJsonObject identity;
     QJsonArray availability;

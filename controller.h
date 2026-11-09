@@ -37,6 +37,8 @@ private:
     bool m_haEnabled, m_haUpdate;
 
     void publishExposes(DeviceObject *device, bool remove = false);
+    QStringList haDiscoveryTopics(DeviceObject *device);
+    void rememberHaDiscoveryTopics(DeviceObject *device);
     void publishHaDiscovery(DeviceObject *device, const QString &devTopic, bool remove);
     void publishStatus(void);
     void publishDeviceState(DeviceObject *device);

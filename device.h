@@ -64,6 +64,8 @@ public:
 
     inline QStringList publishedEndpoints(void) { return m_publishedEndpoints; }
     inline void setPublishedEndpoints(const QStringList &value) { m_publishedEndpoints = value; }
+    inline QStringList haDiscoveryTopics(void) { return m_haDiscoveryTopics; }
+    inline void setHaDiscoveryTopics(const QStringList &value) { m_haDiscoveryTopics = value; }
 
     // number -> entity name for special entities' stable "1"/"2"/"3" identity; see EspHomeDevice::applyDiscoveredEntities()
     inline QMap <int, QString> &specialSlots(void) { return m_specialSlots; }
@@ -83,7 +85,7 @@ private:
     quint16 m_port;
     QByteArray m_encryptionKey;
     qint64 m_lastSeen;
-    QStringList m_publishedEndpoints;
+    QStringList m_publishedEndpoints, m_haDiscoveryTopics;
     QMap <int, QString> m_specialSlots;
     QString m_parentAddress;
     bool m_entitiesReady;

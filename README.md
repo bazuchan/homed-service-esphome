@@ -40,6 +40,12 @@ Inactive devices reject commands, publish no `fd` readings and report offline. D
 
 Disabling just a sub-device does not interrupt its parent or siblings. Incoming data may still refresh its internal cache, but is not published until it is enabled again. A sub-device cannot operate while its parent is inactive or missing.
 
+## Home Assistant discovery cleanup
+
+The database keeps a per-device history of HA config topics (`haDiscoveryTopics`). After a complete entity discovery, topics not in the current entity set are cleared with empty retained payloads, including old component topics when an entity changes type. Disabling device discovery or removing a device clears all known config topics. A still-declared sub-device with no entities receives an empty entity snapshot, so its old configs are cleared without deleting the device. Entirely unreported sub-devices retain their cached descriptions as before.
+
+Topic history is saved before publication and retained as cleanup markers, so deletes can be retried after MQTT reconnects or the service restarts. Historical entries are not pruned on send because sending does not acknowledge broker receipt. At startup, older databases seed the history from a valid restored entity cache before live discovery replaces it. Already-orphaned topics absent from both the cache and the history cannot be reconstructed automatically.
+
 ## Connection deadlines
 
 After the Noise handshake, the service allows 60 seconds for the API exchange (`HelloResponse`, `DeviceInfoResponse` and the entity list ending in `ListEntitiesDone`). This is an absolute deadline: partial entity lists and other traffic do not extend it. The device is marked online only when discovery completes.

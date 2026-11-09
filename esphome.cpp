@@ -766,6 +766,10 @@ void EspHomeDevice::applyDiscoveredEntities(void)
     QMap<quint32, QList<EntityInfo>> grouped;
     for (const auto &info : m_pendingEntities)
         grouped[info.deviceId].append(info);
+    // A declared sub-device can lose its last entity; apply an empty snapshot to clear its old configs too.
+    for (auto it = m_subDeviceNames.begin(); it != m_subDeviceNames.end(); it++)
+        if (!grouped.contains(it.key()))
+            grouped.insert(it.key(), QList<EntityInfo>());
 
     QList<Device> touched;
 

@@ -166,6 +166,11 @@ Device DeviceList::parse(const QJsonObject &json)
     for (const auto &ep : json.value("publishedEndpoints").toArray())
         publishedEndpoints.append(ep.toString());
     device->setPublishedEndpoints(publishedEndpoints);
+    QStringList haDiscoveryTopics;
+    for (const auto &topic : json.value("haDiscoveryTopics").toArray())
+        if (topic.isString() && !topic.toString().isEmpty() && !haDiscoveryTopics.contains(topic.toString()))
+            haDiscoveryTopics.append(topic.toString());
+    device->setHaDiscoveryTopics(haDiscoveryTopics);
     device->setModelName(json.value("modelName").toString());
     device->setEsphomeVersion(json.value("esphomeVersion").toString());
 
@@ -292,6 +297,7 @@ QJsonArray DeviceList::serialize(void)
             json.insert(it.key(), it.value());
 
         json.insert("publishedEndpoints", QJsonArray::fromStringList(device->publishedEndpoints()));
+        json.insert("haDiscoveryTopics", QJsonArray::fromStringList(device->haDiscoveryTopics()));
 
         QJsonObject specialSlots;
         for (auto it = device->specialSlots().begin(); it != device->specialSlots().end(); it++)
