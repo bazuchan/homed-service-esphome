@@ -69,6 +69,10 @@ static QString haSafeId(const QString &value)
 
 void Controller::publishExposes(DeviceObject *device, bool remove)
 {
+    // Never replace retained descriptions with a partial legacy cache while the device is offline.
+    if (!remove && !device->entitiesReady())
+        return;
+
     QString devTopic = deviceTopic(device);
 
     // Built ourselves rather than via DeviceObject::publishExposes() (homed-common) -- that also republishes a colliding numeric-endpoint-keyed copy and doesn't know about our shared fd//td topics.

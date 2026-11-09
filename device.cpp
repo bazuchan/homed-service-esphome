@@ -106,104 +106,73 @@ Device DeviceList::parse(const QJsonObject &json)
 
     device->setParentAddress(json.value("parentAddress").toString());
 
-    setupEndpoints(device, json.value("entities").toArray());
+    QJsonObject snapshot = {{"entityFormat", json.value("entityFormat")}, {"entities", json.value("entities")}, {"entityOptions", json.value("entityOptions")}};
+    device->setEntitySnapshot(snapshot);
+    setupEndpoints(device, snapshot);
     return device;
 }
 
-void DeviceList::setupEndpoints(const Device &device, const QJsonArray &entities)
+Expose DeviceList::createExpose(const QString &type, const QString &objectId, bool special)
 {
-    device->endpoints().clear();
+    if (type == "switch")
+        return special ? Expose(new SwitchObject) : Expose(new ExposeObject(objectId));
+    if (type == "light") return Expose(new LightObject);
+    if (type == "cover") return Expose(new CoverObject);
+    if (type == "climate") return Expose(new ThermostatObject);
+    if (type == "lock") return Expose(new LockObject);
+    if (type == "binary_sensor") return Expose(new BinaryObject(objectId));
+    if (type == "sensor" || type == "text_sensor") return Expose(new SensorObject(objectId));
+    if (type == "select") return Expose(new SelectObject(objectId));
+    if (type == "number") return Expose(new NumberObject(objectId));
+    if (type == "button") return Expose(new ButtonObject(objectId));
+    return Expose();
+}
 
-    for (int i = 0; i < entities.count(); i++)
+void DeviceList::setupEndpoints(const Device &device, const QJsonObject &snapshot)
+{
+    // Legacy records lack endpoint IDs, special flags and complete options; keep them until live discovery replaces them.
+    if (snapshot.value("entityFormat").toInt() != 2)
     {
-        QJsonObject entity = entities.at(i).toObject();
-        QString type = entity.value("type").toString();
-        QString objectId = entity.value("objectId").toString();
-        quint32 key = static_cast<quint32>(entity.value("key").toDouble());
-        quint8 endpointId = static_cast<quint8>(i + 1);
-
-        if (type.isEmpty() || objectId.isEmpty() || key == 0)
-            continue;
-
-        auto ep = QSharedPointer<EndpointObject>::create(endpointId, device);
-        ep->meta().insert("key", key);
-        ep->meta().insert("type", type);
-        ep->meta().insert("objectId", objectId);
-
-        QString entityName = entity.value("name").toString();
-        QString title = entityName.isEmpty() ? objectId : entityName;
-
-        if (type == "switch")
-        {
-            ep->exposes().append(QSharedPointer<SwitchObject>::create());
-            device->options().insert(objectId, QVariantMap {{"title", title}});
-        }
-        else if (type == "binary_sensor")
-        {
-            auto expose = QSharedPointer<BinaryObject>::create(objectId);
-            QVariantMap opts = {{"title", title}};
-            if (!entity.value("deviceClass").toString().isEmpty())
-                opts.insert("class", entity.value("deviceClass").toString());
-            device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
-        }
-        else if (type == "sensor" || type == "text_sensor")
-        {
-            auto expose = QSharedPointer<SensorObject>::create(objectId);
-            QVariantMap opts = {{"title", title}};
-            if (!entity.value("unit").toString().isEmpty())
-                opts.insert("unit", entity.value("unit").toString());
-            if (!entity.value("deviceClass").toString().isEmpty())
-                opts.insert("class", entity.value("deviceClass").toString());
-            if (!entity.value("stateClass").toString().isEmpty())
-                opts.insert("state", entity.value("stateClass").toString());
-            if (entity.value("accuracyDecimals").toInt() > 0)
-                opts.insert("round", entity.value("accuracyDecimals").toInt());
-            device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
-        }
-        else if (type == "light")
-        {
-            auto expose = QSharedPointer<LightObject>::create();
-            QStringList lightOptions = entity.value("lightOptions").toString().split(',', Qt::SkipEmptyParts);
-            device->options().insert("light", lightOptions);
-            if (entity.contains("minMireds") && entity.contains("maxMireds"))
-            {
-                device->options().insert("colorTemperature",
-                    QVariantMap {{"min", entity.value("minMireds").toInt()}, {"max", entity.value("maxMireds").toInt()}});
-            }
-            ep->exposes().append(expose);
-        }
-        else if (type == "select")
-        {
-            auto expose = QSharedPointer<SelectObject>::create(objectId);
-            QStringList opts = entity.value("options").toString().split('\n', Qt::SkipEmptyParts);
-            device->options().insert(objectId, QVariantMap {{"enum", opts}, {"control", true}, {"title", title}});
-            ep->exposes().append(expose);
-        }
-        else if (type == "number")
-        {
-            auto expose = QSharedPointer<NumberObject>::create(objectId);
-            QVariantMap opts;
-            opts.insert("min", entity.value("minValue").toDouble());
-            opts.insert("max", entity.value("maxValue").toDouble());
-            opts.insert("step", entity.value("step").toDouble(1.0));
-            opts.insert("control", true);
-            opts.insert("title", title);
-            if (!entity.value("unit").toString().isEmpty())
-                opts.insert("unit", entity.value("unit").toString());
-            device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
-        }
-        else if (type == "button")
-        {
-            auto expose = QSharedPointer<ButtonObject>::create();
-            device->options().insert(objectId, QVariantMap {{"type", "button"}, {"control", true}, {"title", title}});
-            ep->exposes().append(expose);
-        }
-
-        device->endpoints().insert(endpointId, ep);
+        logInfo << device << "entity cache needs live discovery before publishing exposes";
+        return;
     }
+
+    bool valid = snapshot.value("entities").isArray() && snapshot.value("entityOptions").isObject();
+    QJsonArray entities = snapshot.value("entities").toArray();
+
+    for (const auto &item : entities)
+    {
+        QJsonObject entity = item.toObject();
+        int endpointId = entity.value("endpointId").toInt();
+        QJsonObject meta = entity.value("meta").toObject();
+        QString type = meta.value("type").toString(), objectId = meta.value("objectId").toString();
+        bool special = meta.value("special").toBool();
+        Expose expose = createExpose(type, objectId, special);
+
+        if (endpointId < 1 || endpointId > 255 || device->endpoints().contains(endpointId) || objectId.isEmpty()
+            || meta.value("key").toDouble() <= 0 || !meta.value("special").isBool() || expose.isNull())
+        {
+            valid = false;
+            break;
+        }
+
+        auto ep = QSharedPointer<EndpointObject>::create(static_cast<quint8>(endpointId), device);
+        ep->meta() = meta.toVariantMap();
+        ep->meta().remove("deviceId");
+        expose->setParent(ep.data());
+        ep->exposes().append(expose);
+        device->endpoints().insert(static_cast<quint8>(endpointId), ep);
+    }
+
+    if (!valid)
+    {
+        device->endpoints().clear();
+        logWarning << device << "invalid entity cache, waiting for live discovery";
+        return;
+    }
+
+    device->options() = snapshot.value("entityOptions").toObject().toVariantMap();
+    device->setEntitiesReady(true);
 }
 
 void DeviceList::unserialize(const QJsonArray &devices)
@@ -237,60 +206,22 @@ QJsonArray DeviceList::serialize(void)
         json.insert("modelName", device->modelName());
         json.insert("esphomeVersion", device->esphomeVersion());
 
-        QJsonArray entities;
-        for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
+        QJsonObject snapshot = device->entitySnapshot();
+        if (device->entitiesReady())
         {
-            const auto &ep = it.value();
-            QJsonObject entity;
-            entity.insert("key", static_cast<double>(ep->meta().value("key").toUInt()));
-            entity.insert("type", ep->meta().value("type").toString());
-            entity.insert("objectId", ep->meta().value("objectId").toString());
-
-            QString type = ep->meta().value("type").toString();
-            QString objectId = ep->meta().value("objectId").toString();
-
-            QString entityTitle = device->options().value(objectId).toMap().value("title").toString();
-            if (!entityTitle.isEmpty() && entityTitle != objectId)
-                entity.insert("name", entityTitle);
-
-            if (type == "binary_sensor")
+            QJsonArray entities;
+            for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
             {
-                entity.insert("deviceClass", device->options().value(objectId).toMap().value("class").toString());
+                QVariantMap meta = it.value()->meta();
+                // Protocol device IDs are session-local and must come from the next discovery, never from disk.
+                meta.remove("deviceId");
+                entities.append(QJsonObject {{"endpointId", it.key()}, {"meta", QJsonObject::fromVariantMap(meta)}});
             }
-            else if (type == "sensor" || type == "text_sensor")
-            {
-                QVariantMap opts = device->options().value(objectId).toMap();
-                if (opts.contains("unit")) entity.insert("unit", opts.value("unit").toString());
-                if (opts.contains("class")) entity.insert("deviceClass", opts.value("class").toString());
-                if (opts.contains("state")) entity.insert("stateClass", opts.value("state").toString());
-                if (opts.contains("round")) entity.insert("accuracyDecimals", opts.value("round").toInt());
-            }
-            else if (type == "light")
-            {
-                QStringList opts = device->options().value("light").toStringList();
-                entity.insert("lightOptions", opts.join(','));
-                QVariantMap ct = device->options().value("colorTemperature").toMap();
-                if (ct.contains("min")) entity.insert("minMireds", ct.value("min").toInt());
-                if (ct.contains("max")) entity.insert("maxMireds", ct.value("max").toInt());
-            }
-            else if (type == "select")
-            {
-                QStringList opts = device->options().value(objectId).toMap().value("enum").toStringList();
-                entity.insert("options", opts.join('\n'));
-            }
-            else if (type == "number")
-            {
-                QVariantMap opts = device->options().value(objectId).toMap();
-                entity.insert("minValue", opts.value("min").toDouble());
-                entity.insert("maxValue", opts.value("max").toDouble());
-                entity.insert("step", opts.value("step", 1.0).toDouble());
-                if (opts.contains("unit")) entity.insert("unit", opts.value("unit").toString());
-            }
-
-            entities.append(entity);
+            snapshot = QJsonObject {{"entityFormat", 2}, {"entities", entities}, {"entityOptions", QJsonObject::fromVariantMap(device->options())}};
         }
+        for (auto it = snapshot.begin(); it != snapshot.end(); it++)
+            json.insert(it.key(), it.value());
 
-        json.insert("entities", entities);
         json.insert("publishedEndpoints", QJsonArray::fromStringList(device->publishedEndpoints()));
 
         QJsonObject specialSlots;

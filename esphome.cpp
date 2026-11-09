@@ -866,6 +866,10 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
         quint8 endpointId = endpointIds.at(i);
         bool special = isSpecialType(info);
 
+        Expose expose = DeviceList::createExpose(info.type, objectId, special);
+        if (expose.isNull())
+            continue;
+
         auto ep = QSharedPointer<EndpointObject>::create(endpointId, device);
         ep->meta().insert("key", info.key);
         ep->meta().insert("deviceId", info.deviceId);
@@ -891,14 +895,12 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
                 opts.insert("type", "toggle");
                 opts.insert("control", true);
                 device->options().insert(objectId, opts);
-                ep->exposes().append(QSharedPointer<ExposeObject>::create(objectId));
             }
             else
             {
                 // SwitchObject's name is hardcoded "switch" -- title() resolves "switch_<endpointId>" then "switch", never objectId
                 device->options().insert(QString("switch_%1").arg(endpointId), opts);
                 device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
-                ep->exposes().append(QSharedPointer<SwitchObject>::create());
             }
         }
         else if (info.type == "lock")
@@ -906,24 +908,19 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             QVariantMap opts = {{"title", title}};
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
 
-            ep->exposes().append(QSharedPointer<LockObject>::create());
-
             // LockObject's name is hardcoded "lock" -- title() resolves "lock_<endpointId>" then "lock", never objectId
             device->options().insert(QString("lock_%1").arg(endpointId), opts);
             device->options().insert(objectId, opts); // objectId-keyed copy: Controller::publishExposes reads this for the web UI
         }
         else if (info.type == "binary_sensor")
         {
-            auto expose = QSharedPointer<BinaryObject>::create(objectId);
             QVariantMap opts = {{"type", "binary"}, {"title", title}};
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
         }
         else if (info.type == "sensor" || info.type == "text_sensor")
         {
-            auto expose = QSharedPointer<SensorObject>::create(objectId);
             QVariantMap opts = {{"type", "sensor"}, {"title", title}};
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
             if (!info.deviceClass.isEmpty()) opts.insert("class", info.deviceClass);
@@ -931,12 +928,9 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             if (info.accuracyDecimals > 0) opts.insert("round", info.accuracyDecimals);
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
         }
         else if (info.type == "light")
         {
-            auto expose = QSharedPointer<LightObject>::create();
-
             // LightObject::request()/title() both resolve through
             // AbstractMetaObject::option(), which for any *unnamed* lookup
             // (m_name is hardcoded literal "light" for every light in
@@ -963,12 +957,9 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
                 device->options().insert("colorTemperature", colorTemperature);
                 device->options().insert(objectId + "_colorTemperature", colorTemperature);
             }
-            ep->exposes().append(expose);
         }
         else if (info.type == "cover")
         {
-            auto expose = QSharedPointer<CoverObject>::create();
-
             // Same capabilities-only-slot situation as light above: CoverObject
             // reads its device_class via a bare option().toString() call, which
             // resolves "cover_<endpointId>" before "cover" -- storing a title
@@ -982,12 +973,9 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             device->options().insert(QString("cover_%1").arg(endpointId), info.deviceClass);
             device->options().insert("cover", info.deviceClass);
             ep->meta().insert("supportsPosition", info.supportsPosition);
-            ep->exposes().append(expose);
         }
         else if (info.type == "climate")
         {
-            auto expose = QSharedPointer<ThermostatObject>::create();
-
             // Unlike light/cover, none of ThermostatObject::request()'s own
             // option() calls read the "thermostat" key itself (they're all
             // separately-named sub-fields -- systemMode/operationMode/fanMode/
@@ -1024,20 +1012,15 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
 
             ep->meta().insert("climateHasPreset", !info.climatePresets.isEmpty());
             ep->meta().insert("climateHasFanMode", !info.climateFanModes.isEmpty());
-
-            ep->exposes().append(expose);
         }
         else if (info.type == "select")
         {
-            auto expose = QSharedPointer<SelectObject>::create(objectId);
             QVariantMap opts = {{"type", "select"}, {"enum", info.selectOptions}, {"control", true}, {"title", title}};
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
         }
         else if (info.type == "number")
         {
-            auto expose = QSharedPointer<NumberObject>::create(objectId);
             QVariantMap opts;
             opts.insert("type", "number");
             opts.insert("min", static_cast<double>(info.minValue));
@@ -1048,26 +1031,26 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             if (!info.unit.isEmpty()) opts.insert("unit", info.unit);
             device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
         }
         else if (info.type == "button")
         {
-            auto expose = QSharedPointer<ButtonObject>::create(objectId);
             QVariantMap opts = {{"type", "button"}, {"control", true}, {"title", title}};
             if (!info.icon.isEmpty()) opts.insert("icon", info.icon);
             device->options().insert(objectId, opts);
-            ep->exposes().append(expose);
         }
 
         // Required for expose->option()/title() to see this device's options
         // (title/unit/class/etc, inserted above) -- ExposeObject::option() walks
         // up via m_parent, which nothing sets automatically.
-        for (auto &expose : ep->exposes())
-            expose->setParent(ep.data());
+        expose->setParent(ep.data());
+        ep->exposes().append(expose);
 
         device->endpoints().insert(endpointId, ep);
     }
 
+    // Keep live and restored options in the same JSON-compatible types (notably enum arrays).
+    device->options() = QJsonObject::fromVariantMap(device->options()).toVariantMap();
+    device->setEntitiesReady(true);
     logInfo << device << "discovered" << entities.count() << "entities";
 }
 

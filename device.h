@@ -12,6 +12,7 @@
 
 #include <QDateTime>
 #include <QFile>
+#include <QJsonArray>
 #include <QSettings>
 #include <QTimer>
 #include "endpoint.h"
@@ -41,7 +42,7 @@ class DeviceObject : public AbstractDeviceObject
 public:
 
     DeviceObject(const QString &name, const QString &host, quint16 port, const QByteArray &encryptionKey)
-        : AbstractDeviceObject(name), m_host(host), m_port(port), m_encryptionKey(encryptionKey), m_lastSeen(0) {}
+        : AbstractDeviceObject(name), m_host(host), m_port(port), m_encryptionKey(encryptionKey), m_lastSeen(0), m_entitiesReady(false) {}
 
     inline QString host(void) { return m_host; }
     inline void setHost(const QString &value) { m_host = value; }
@@ -71,6 +72,11 @@ public:
     inline QString parentAddress(void) { return m_parentAddress; }
     inline void setParentAddress(const QString &value) { m_parentAddress = value; }
 
+    inline bool entitiesReady(void) { return m_entitiesReady; }
+    inline void setEntitiesReady(bool value) { m_entitiesReady = value; }
+    inline QJsonObject entitySnapshot(void) { return m_entitySnapshot; }
+    inline void setEntitySnapshot(const QJsonObject &value) { m_entitySnapshot = value; }
+
 private:
 
     QString m_host, m_esphomeVersion;
@@ -80,6 +86,8 @@ private:
     QStringList m_publishedEndpoints;
     QMap <int, QString> m_specialSlots;
     QString m_parentAddress;
+    bool m_entitiesReady;
+    QJsonObject m_entitySnapshot;
 
 };
 
@@ -100,6 +108,7 @@ public:
     Device byName(const QString &name, int *index = nullptr);
     Device byHost(const QString &host);
     Device parse(const QJsonObject &json);
+    static Expose createExpose(const QString &type, const QString &objectId, bool special);
 
 private:
 
@@ -109,7 +118,7 @@ private:
 
     void unserialize(const QJsonArray &devices);
     QJsonArray serialize(void);
-    void setupEndpoints(const Device &device, const QJsonArray &entities);
+    void setupEndpoints(const Device &device, const QJsonObject &snapshot);
 
 private slots:
 

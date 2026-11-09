@@ -32,6 +32,12 @@ Native API states and commands are routed by the pair `device_id` + entity `key`
 
 A sub-device that stops being reported (removed from the ESPHome config, or the parent simply offline) is never deleted on its own — it's left in the database exactly as last seen, so if it's ever reconfigured back it picks up its previous `objectId`/expose mapping again rather than starting over as a new device. Only an explicit `removeDevice` command deletes it — and removing a parent this way also removes its sub-devices, since they can't function without it.
 
+## Entity cache
+
+After discovery, the database stores a versioned entity snapshot with exact endpoint IDs, special/common routing, expose metadata and device options. This restores the same entity descriptions on restart even when the ESPHome device is offline. Protocol `device_id` values and live readings are not restored from disk.
+
+Older database records lack enough information for a faithful reconstruction. They are preserved until the device reconnects and discovery writes the new snapshot. Until then, the service does not overwrite retained expose/HA descriptions with incomplete cached data; if the broker has no retained descriptions, they become available after discovery. Invalid or unsupported snapshots are handled the same way.
+
 ## Web UI
 
 ~~`homed-web` needs to be patched to add ESPHome support, after installing, run: `/usr/share/homed-web/esphome-patcher.sh`~~
