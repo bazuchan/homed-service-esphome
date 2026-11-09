@@ -631,6 +631,8 @@ void EspHomeDevice::processEntityInfo(quint16 type, const QByteArray &payload)
                 if (f.field() == 2 && f.wireType() == 5) info.key = f.fixed32();
                 else if (f.field() == 19 && f.wireType() == 2) info.icon = f.string();
                 else if (f.field() == 26 && f.wireType() == 0) info.deviceId = static_cast<quint32>(f.varint());
+                else if (f.field() == 5 && f.wireType() == 0) info.climateSupportsCurrentTemperature = f.boolean();
+                else if (f.field() == 6 && f.wireType() == 0) info.climateTwoPointTarget = f.boolean();
                 else if (f.field() == 7 && f.wireType() == 0)
                 {
                     QString mode = climateModeName(f.varint());
@@ -1010,6 +1012,9 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             device->options().insert(QString("runningStatus_%1").arg(endpointId), info.climateSupportsAction);
             device->options().insert("runningStatus", info.climateSupportsAction);
 
+            ep->meta().insert("climateSupportsCurrentTemperature", info.climateSupportsCurrentTemperature);
+            ep->meta().insert("climateTwoPointTarget", info.climateTwoPointTarget);
+            ep->meta().insert("climateSupportsAction", info.climateSupportsAction);
             ep->meta().insert("climateHasPreset", !info.climatePresets.isEmpty());
             ep->meta().insert("climateHasFanMode", !info.climateFanModes.isEmpty());
         }
@@ -1059,6 +1064,7 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     auto fields = ProtoDecoder::decode(payload);
     quint32 key = 0, deviceId = 0;
     int deviceIdField = 0;
+    bool missingState = false;
     QMap<QString, QVariant> state;
 
     // device_id has a different field number in each state response (api.proto).
@@ -1095,22 +1101,30 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
             case MsgType::StateSwitch:
                 if (f.field() == 2 && f.wireType() == 0)
                     state.insert("_switchState", f.boolean() ? "on" : "off"); // "status" (special) or objectId (common toggle) -- resolved once we know which, below
+                else if (f.field() == 4 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
 
             case MsgType::StateBinary:
                 // placeholder: objectId needed from entity info
                 if (f.field() == 2 && f.wireType() == 0)
                     state.insert("_state", f.boolean());
+                else if (f.field() == 3 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
 
             case MsgType::StateSensor:
                 if (f.field() == 2 && f.wireType() == 5)
                     state.insert("_state", static_cast<double>(f.floatVal()));
+                else if (f.field() == 3 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
 
             case MsgType::StateTextSensor:
                 if (f.field() == 2 && f.wireType() == 2)
                     state.insert("_state", f.string());
+                else if (f.field() == 3 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
 
             case MsgType::StateLight:
@@ -1152,21 +1166,27 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
                     state.insert("operationMode", climatePresetName(f.varint()));
                 else if (f.field() == 13 && f.wireType() == 2 && !f.string().isEmpty())
                     state.insert("operationMode", f.string()); // custom_preset overrides
+                else if (f.field() == 17 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
 
             case MsgType::StateLock:
                 if (f.field() == 2 && f.wireType() == 0)
-                    state.insert("status", (f.varint() == 1) ? "off" : "on"); // LOCK_STATE_LOCKED=1 -> "off", matching LockObject's state_locked/state_unlocked convention
+                    state.insert("status", f.varint() == 1 ? QVariant("off") : f.varint() == 2 ? QVariant("on") : QVariant()); // Only LOCKED/UNLOCKED have a definite status.
                 break;
 
             case MsgType::StateSelect:
                 if (f.field() == 2 && f.wireType() == 2)
                     state.insert("_state", f.string());
+                else if (f.field() == 3 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
 
             case MsgType::StateNumber:
                 if (f.field() == 2 && f.wireType() == 5)
                     state.insert("_state", static_cast<double>(f.floatVal()));
+                else if (f.field() == 3 && f.wireType() == 0)
+                    missingState = f.boolean();
                 break;
         }
     }
@@ -1174,22 +1194,23 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     if (key == 0)
         return;
 
-    // Proto3 omits default (false/zero-enum) values — supply the explicit
-    // zero-value default (matches each field's own enum ordering above)
+    // State responses are snapshots: omitted proto3 fields have their zero/empty value, not the previous reading.
     if (type == MsgType::StateSwitch && !state.contains("_switchState"))
         state.insert("_switchState", "off");
     else if (type == MsgType::StateBinary && !state.contains("_state"))
         state.insert("_state", false);
+    else if ((type == MsgType::StateSensor || type == MsgType::StateNumber) && !state.contains("_state"))
+        state.insert("_state", 0.0);
+    else if ((type == MsgType::StateTextSensor || type == MsgType::StateSelect) && !state.contains("_state"))
+        state.insert("_state", QString());
     else if (type == MsgType::StateLight && !state.contains("status"))
         state.insert("status", "off");
     else if (type == MsgType::StateLock && !state.contains("status"))
-        state.insert("status", "off");
+        state.insert("status", QVariant()); // LOCK_STATE_NONE is unknown, not locked.
     else if (type == MsgType::StateClimate)
     {
         if (!state.contains("systemMode"))
             state.insert("systemMode", "off");
-        if (!state.contains("running"))
-            state.insert("running", false);
     }
 
     // Keys are scoped to a protocol device_id; omitted device_id means the parent (0).
@@ -1215,41 +1236,36 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
         state.insert("_state", std::round(state.value("_state").toDouble() * factor) / factor);
     }
 
-    // Handle RGB light: combine r,g,b into color array
-    if (type == MsgType::StateLight && state.contains("_r"))
+    if (type == MsgType::StateLight)
     {
-        QVariantList color;
-        color.append(static_cast<int>(state.value("_r").toDouble() * 255.0));
-        color.append(static_cast<int>(state.value("_g").toDouble() * 255.0));
-        color.append(static_cast<int>(state.value("_b").toDouble() * 255.0));
+        QStringList capabilities = device->options().value(objectId + "_light").toStringList();
+        if (capabilities.contains("level") && !state.contains("level"))
+            state.insert("level", 0);
+        if (capabilities.contains("colorTemperature") && !state.contains("colorTemperature"))
+            state.insert("colorTemperature", 0);
+
+        // Red may be omitted for green/blue/black; each missing RGB component independently defaults to zero.
+        if (capabilities.contains("color"))
+        {
+            QVariantList color;
+            color.append(static_cast<int>(state.value("_r").toDouble() * 255.0));
+            color.append(static_cast<int>(state.value("_g").toDouble() * 255.0));
+            color.append(static_cast<int>(state.value("_b").toDouble() * 255.0));
+            state.insert("color", color);
+        }
         state.remove("_r");
         state.remove("_g");
         state.remove("_b");
-        state.insert("color", color);
     }
 
-    // Cover: derive open/closed + a 0-100 position from whichever field the
-    // device actually reports. supports_position devices send a real 0.0-1.0
-    // position; others only send the deprecated legacy_state (0=open,
-    // 1=closed, proto3-omitted -- i.e. defaults to open -- like every other
-    // zero-value default above), so synthesize a position from that instead,
-    // both so the web UI's position slider still has something sane to show
-    // and so open/close via the slider's extremes still works either way.
+    // Modern servers report position even for open/close-only covers; an omitted position means fully closed.
     if (type == MsgType::StateCover)
     {
-        if (ep->meta().value("supportsPosition").toBool() && state.contains("_position"))
-        {
-            double position = state.value("_position").toDouble();
-            state.insert("position", static_cast<int>(std::round(position * 100.0)));
-            state.insert("cover", position > 0.0 ? "open" : "closed");
-        }
-        else
-        {
-            bool closed = state.value("_legacyState", 0).toUInt() != 0;
-            state.insert("cover", closed ? "closed" : "open");
-            state.insert("position", closed ? 0 : 100);
-        }
-
+        double position = state.value("_position", 0.0).toDouble();
+        if (!ep->meta().value("supportsPosition").toBool() && !state.contains("_position") && state.contains("_legacyState"))
+            position = state.value("_legacyState").toUInt() == 0 ? 1.0 : 0.0;
+        state.insert("position", static_cast<int>(std::round(position * 100.0)));
+        state.insert("cover", position > 0.0 ? "open" : "closed");
         state.remove("_position");
         state.remove("_legacyState");
     }
@@ -1264,6 +1280,12 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     // a state update for it and shows no current value.
     if (type == MsgType::StateClimate)
     {
+        if (ep->meta().value("climateSupportsCurrentTemperature").toBool() && !state.contains("temperature"))
+            state.insert("temperature", 0.0);
+        if (!ep->meta().value("climateTwoPointTarget").toBool() && !state.contains("targetTemperature"))
+            state.insert("targetTemperature", 0.0);
+        if (ep->meta().value("climateSupportsAction").toBool() && !state.contains("running"))
+            state.insert("running", false);
         if (ep->meta().value("climateHasPreset").toBool() && !state.contains("operationMode"))
             state.insert("operationMode", climatePresetName(0));
         if (ep->meta().value("climateHasFanMode").toBool() && !state.contains("fanMode"))
@@ -1282,6 +1304,15 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
     {
         state.insert(ep->meta().value("special").toBool() ? "status" : objectId, state.value("_switchState"));
         state.remove("_switchState");
+    }
+
+    // Missing readings are unknown, not false/zero. Null also invalidates previously cached values on MQTT.
+    if (missingState)
+    {
+        for (auto it = ep->stateMap().begin(); it != ep->stateMap().end(); it++)
+            state.insert(it.key(), QVariant());
+        for (auto it = state.begin(); it != state.end(); it++)
+            it.value() = QVariant();
     }
 
     // Update endpoint state

@@ -32,6 +32,12 @@ Native API states and commands are routed by the pair `device_id` + entity `key`
 
 A sub-device that stops being reported (removed from the ESPHome config, or the parent simply offline) is never deleted on its own — it's left in the database exactly as last seen, so if it's ever reconfigured back it picks up its previous `objectId`/expose mapping again rather than starting over as a new device. Only an explicit `removeDevice` command deletes it — and removing a parent this way also removes its sub-devices, since they can't function without it.
 
+## State values
+
+ESPHome state responses are snapshots: omitted proto3 values mean zero, false or an empty string, not the previous reading. Optional light and climate readings are defaulted only when supported. Modern cover position defaults to zero (closed), including open/close-only covers.
+
+A reported `missing_state` invalidates that entity's cached readings and publishes JSON `null`, rather than inventing a zero/off reading or retaining an old value. Lock states other than confirmed locked/unlocked are also published as `null`. The device itself can remain online while an entity has no valid reading.
+
 ## Entity cache
 
 After discovery, the database stores a versioned entity snapshot with exact endpoint IDs, special/common routing, expose metadata and device options. This restores the same entity descriptions on restart even when the ESPHome device is offline. Protocol `device_id` values and live readings are not restored from disk.
