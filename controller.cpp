@@ -175,7 +175,8 @@ void Controller::publishHaDiscovery(DeviceObject *device, const QString &devTopi
     QJsonObject identity;
     QJsonArray availability;
 
-    if (!remove)
+    // mirrors homed-common publishDiscovery: device->discovery() gates building the config, an empty retained payload is what clears entities from HA
+    if (!remove && device->discovery())
     {
         identity.insert("identifiers", QJsonArray {nodeId});
         identity.insert("name", device->name());
@@ -203,7 +204,7 @@ void Controller::publishHaDiscovery(DeviceObject *device, const QString &devTopi
             QString configTopic = QString("%1/%2/%3/%4/config").arg(m_haPrefix, expose->component(), nodeId, objectId);
             QJsonObject json;
 
-            if (!remove)
+            if (!remove && device->discovery())
             {
                 // Special entities get their own fd//td topic (suffixed with their stable number); everything else shares the device-wide "common" one
                 QString topic = ep->meta().value("special").toBool()
@@ -437,6 +438,9 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                     device->setDiscovery(json.value("discovery").toBool());
                 if (json.contains("cloud"))
                     device->setCloud(json.value("cloud").toBool());
+
+                if (device->active())
+                    m_esphome->connectDevice(device.data());
 
                 m_devices->store();
                 publishExposes(device.data());

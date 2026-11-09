@@ -159,9 +159,11 @@ EspHomeDevice::~EspHomeDevice(void)
 
 void EspHomeDevice::connectToDevice(void)
 {
-    if (m_state != State::Disconnected)
+    // A failed initial connection may leave the protocol state at Connecting without emitting disconnected.
+    if (!m_device->active() || m_socket->state() != QAbstractSocket::UnconnectedState)
         return;
 
+    m_reconnectTimer->stop();
     m_state = State::Connecting;
     m_rxBuf.clear();
     m_noiseHandshakeState = 0;
@@ -760,6 +762,7 @@ Device EspHomeDevice::subDevice(quint32 deviceId)
     {
         sub = Device(new DeviceObject(subName, address, m_device->port(), m_device->encryptionKey()));
         sub->setParentAddress(m_device->address());
+        sub->setDiscovery(m_device->discovery());
         sub->setCloud(m_device->cloud());
         m_devices->append(sub);
         logInfo << m_device << "discovered sub-device" << subName << "(id" << deviceId << ")";
@@ -1535,8 +1538,17 @@ void EspHomeManager::connectAll(void)
 
 void EspHomeManager::connectDevice(DeviceObject *device)
 {
-    if (!device->parentAddress().isEmpty() || m_connections.contains(device->host()))
+    if (!device->parentAddress().isEmpty())
         return;
+
+    auto existing = m_connections.value(device->host());
+
+    if (existing)
+    {
+        existing->connectToDevice();
+
+        return;
+    }
 
     auto conn = new EspHomeDevice(m_devices->byHost(device->host()), m_devices, this);
     connect(conn, &EspHomeDevice::entitiesDiscovered, this, &EspHomeManager::entitiesDiscovered);

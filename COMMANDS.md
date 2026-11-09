@@ -30,7 +30,7 @@ Updates device properties without reconnecting.
 {"action": "updateDevice", "device": "my-device", "name": "new-name", "active": true, "discovery": true, "cloud": true}
 ```
 
-All fields except `action` and `device` are optional. Omitting `cloud` preserves its current value. The cloud flag does not disable local MQTT or Home Assistant discovery.
+All fields except `action` and `device` are optional. Omitting a flag preserves its current value. `discovery = false` clears the device Home Assistant discovery configs (local MQTT topics keep working). `active = false` lets an established connection finish but stops reconnecting; `active = true` resumes connection attempts.
 
 ## getProperties
 
