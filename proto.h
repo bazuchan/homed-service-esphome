@@ -69,7 +69,7 @@ public:
     bool hasMore(void) const { return m_pos < m_data.size(); }
     bool readField(ProtoField &field);
 
-    // Helper: decode all fields from data
+    // Decode until the first malformed or unsupported field, preserving the valid prefix.
     static QList<ProtoField> decode(const QByteArray &data);
 
 private:

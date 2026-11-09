@@ -5,7 +5,7 @@
 
 void ProtoEncoder::writeTag(int field, int wireType)
 {
-    writeVarint(static_cast<quint64>((field << 3) | wireType));
+    writeVarint((static_cast<quint64>(field) << 3) | static_cast<quint64>(wireType));
 }
 
 void ProtoEncoder::writeVarint(quint64 value)
@@ -66,6 +66,9 @@ bool ProtoDecoder::readVarint(quint64 &value)
     while (m_pos < m_data.size())
     {
         quint8 b = static_cast<quint8>(m_data.at(m_pos++));
+        // Only bit 63 fits in the tenth byte; reject both overflow and continuation.
+        if (shift == 63 && (b & 0xFE))
+            return false;
         value |= (static_cast<quint64>(b & 0x7F) << shift);
         if (!(b & 0x80))
             return true;
@@ -85,6 +88,9 @@ bool ProtoDecoder::readField(ProtoField &result)
     if (!readVarint(tag))
         return false;
 
+    if ((tag >> 3) == 0 || (tag >> 3) > 0x1FFFFFFF)
+        return false;
+
     int field = static_cast<int>(tag >> 3);
     int wireType = static_cast<int>(tag & 0x07);
 
@@ -100,7 +106,7 @@ bool ProtoDecoder::readField(ProtoField &result)
             break;
 
         case 1: // 64-bit
-            if (m_pos + 8 > m_data.size())
+            if (m_data.size() - m_pos < 8)
                 return false;
             m_pos += 8;
             break;
@@ -110,7 +116,8 @@ bool ProtoDecoder::readField(ProtoField &result)
             quint64 len;
             if (!readVarint(len))
                 return false;
-            if (m_pos + static_cast<int>(len) > m_data.size())
+            // Validate in the unsigned domain before narrowing; adding an unchecked length can rewind the cursor.
+            if (len > static_cast<quint64>(m_data.size() - m_pos))
                 return false;
             rawValue = m_data.mid(m_pos, static_cast<int>(len));
             m_pos += static_cast<int>(len);
@@ -119,12 +126,12 @@ bool ProtoDecoder::readField(ProtoField &result)
 
         case 5: // 32-bit
         {
-            if (m_pos + 4 > m_data.size())
+            if (m_data.size() - m_pos < 4)
                 return false;
             quint32 bits = static_cast<quint8>(m_data.at(m_pos))
-                         | (static_cast<quint8>(m_data.at(m_pos + 1)) << 8)
-                         | (static_cast<quint8>(m_data.at(m_pos + 2)) << 16)
-                         | (static_cast<quint8>(m_data.at(m_pos + 3)) << 24);
+                         | (static_cast<quint32>(static_cast<quint8>(m_data.at(m_pos + 1))) << 8)
+                         | (static_cast<quint32>(static_cast<quint8>(m_data.at(m_pos + 2))) << 16)
+                         | (static_cast<quint32>(static_cast<quint8>(m_data.at(m_pos + 3))) << 24);
             memcpy(&floatValue, &bits, 4);
             varintValue = bits;
             m_pos += 4;
