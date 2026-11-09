@@ -846,16 +846,35 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
     // separator, so it doesn't reintroduce an underscore) is appended only on
     // an actual collision -- distinctly-named entities never get one, so
     // titles never get a stray digit appended by homed-web's title fallback.
-    QMap<QString, int> objectIdCount;
-    QStringList objectIds;
-
+    QStringList bases, objectIds;
+    QSet<QString> reservedIds, usedIds;
     for (const auto &info : entities)
     {
-        QString base = camelCase(!info.name.isEmpty() ? info.name : (!info.deviceClass.isEmpty() ? info.deviceClass : info.type));
-        int count = objectIdCount.value(base, 0) + 1;
+        QString base = camelCase(info.name);
+        if (base.isEmpty()) base = camelCase(info.deviceClass);
+        if (base.isEmpty()) base = camelCase(info.type);
+        if (base.isEmpty()) base = "entity";
+        bases.append(base);
+        reservedIds.insert(base);
+    }
 
-        objectIdCount.insert(base, count);
-        objectIds.append(count > 1 ? QString("%1%2").arg(base).arg(count) : base);
+    QMap<QString, int> nextSuffix;
+    for (const auto &base : bases)
+    {
+        QString objectId = base;
+        if (usedIds.contains(objectId))
+        {
+            int suffix = nextSuffix.value(base, 2);
+            // Generated suffixes must not steal another entity's natural name, even if it appears later.
+            do
+            {
+                objectId = QString("%1%2").arg(base).arg(suffix++);
+            }
+            while (usedIds.contains(objectId) || reservedIds.contains(objectId));
+            nextSuffix.insert(base, suffix);
+        }
+        usedIds.insert(objectId);
+        objectIds.append(objectId);
     }
 
     // Special entities get a stable number (persisted in DeviceObject::specialSlots(), reused by name match) instead of sharing "common" -- see Controller::publishExposes().
@@ -866,7 +885,8 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
     };
 
     QMap<int, QString> &slotMap = device->specialSlots();
-    QList<quint8> endpointIds;
+    QList<int> endpointIds;
+    const int maxEndpointId = 255;
     QSet<int> usedThisRound;
 
     for (const auto &info : entities)
@@ -880,7 +900,8 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
         int number = 0;
         for (auto it = slotMap.begin(); it != slotMap.end(); it++)
         {
-            if (it.value() == info.name && !usedThisRound.contains(it.key()))
+            if (it.key() >= 1 && it.key() <= maxEndpointId
+                && it.value() == info.name && !usedThisRound.contains(it.key()))
             {
                 number = it.key();
                 break;
@@ -890,13 +911,20 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
         if (number == 0)
         {
             number = 1;
-            while (slotMap.contains(number) || usedThisRound.contains(number))
+            while (number <= maxEndpointId && (slotMap.contains(number) || usedThisRound.contains(number)))
                 number++;
+        }
+
+        if (number > maxEndpointId)
+        {
+            logWarning << device << "no free special endpoint slot, skipping entity" << info.name;
+            endpointIds.append(-1);
+            continue;
         }
 
         slotMap.insert(number, info.name);
         usedThisRound.insert(number);
-        endpointIds.append(static_cast<quint8>(number));
+        endpointIds.append(number);
     }
 
     {
@@ -906,10 +934,17 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
             if (endpointIds.at(i) != 0)
                 continue;
 
-            while (usedThisRound.contains(next))
+            while (next <= maxEndpointId && usedThisRound.contains(next))
                 next++;
 
-            endpointIds[i] = static_cast<quint8>(next);
+            if (next > maxEndpointId)
+            {
+                logWarning << device << "endpoint limit reached, skipping entity" << entities.at(i).name;
+                endpointIds[i] = -1;
+                continue;
+            }
+
+            endpointIds[i] = next;
             usedThisRound.insert(next);
             next++;
         }
@@ -919,7 +954,9 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
     {
         const EntityInfo &info = entities.at(i);
         const QString &objectId = objectIds.at(i);
-        quint8 endpointId = endpointIds.at(i);
+        if (endpointIds.at(i) < 1)
+            continue;
+        quint8 endpointId = static_cast<quint8>(endpointIds.at(i));
         bool special = isSpecialType(info);
 
         Expose expose = DeviceList::createExpose(info.type, objectId, special);
@@ -1110,7 +1147,7 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
     // Keep live and restored options in the same JSON-compatible types (notably enum arrays).
     device->options() = QJsonObject::fromVariantMap(device->options()).toVariantMap();
     device->setEntitiesReady(true);
-    logInfo << device << "discovered" << entities.count() << "entities";
+    logInfo << device << "discovered" << entities.count() << "entities, exposed" << device->endpoints().size();
 }
 
 void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)

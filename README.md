@@ -34,6 +34,12 @@ A sub-device that stops being reported (removed from the ESPHome config, or the 
 
 Names adopted automatically from ESPHome are made unique with a numeric suffix such as `Room (2)` if needed. Sub-device display names can be edited independently of their stable addresses; rediscovery does not overwrite the user's name.
 
+## Entity identities and limits
+
+Entity object IDs are unique camelCase names within each device. Numeric suffixes are checked against both assigned IDs and all natural names from the discovery snapshot: `Temperature`, another `Temperature`, and `Temperature2` become `temperature`, `temperature3`, and `temperature2`. Names that normalize to an empty string fall back to the device class or entity type. Identically named entities are distinguished in discovery order.
+
+The common HOMEd endpoint model uses 8-bit IDs. This service assigns IDs in `1..255`, allocating special entities first and common-bucket entities from the remaining slots. Entities that cannot be assigned a slot are skipped with a warning rather than wrapping IDs or overwriting another entity. Historical special slots stay reserved for returning entities; invalid historical numbers outside `1..255` are never reused. The limit applies separately to the parent and each sub-device.
+
 ## Active devices
 
 Inactive devices reject commands, publish no `fd` readings and report offline. Disabling a parent closes its connection and stops retries; all its sub-devices become unavailable, but keep their individual Active settings. Cached readings from the closed connection are discarded. Re-enabling the parent reconnects and obtains fresh states.
