@@ -55,6 +55,8 @@ private slots:
 
     void updateProperties(void);
     void publishDeviceStatus(DeviceObject *device);
+    void deviceAboutToRename(DeviceObject *device);
+    void deviceUpdated(DeviceObject *device);
     void entitiesDiscovered(DeviceObject *device);
     void stateChanged(DeviceObject *device, quint8 endpointId);
     void availabilityChanged(DeviceObject *device);

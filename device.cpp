@@ -76,6 +76,48 @@ Device DeviceList::byHost(const QString &host)
     return Device();
 }
 
+bool DeviceList::nameAvailable(const QString &name, DeviceObject *except) const
+{
+    if (name.isEmpty())
+        return false;
+
+    for (const auto &device : *this)
+    {
+        if (device.data() == except)
+            continue;
+        // Commands accept both names and addresses, so neither may shadow another device.
+        if (device->name() == name || device->host() == name || device->address() == name)
+            return false;
+    }
+    return true;
+}
+
+QString DeviceList::uniqueName(const QString &name, DeviceObject *except) const
+{
+    QString base = mqttSafe(name);
+    if (base.isEmpty())
+        base = "Device";
+    QString candidate = base;
+    int suffix = 2;
+    while (!nameAvailable(candidate, except))
+        candidate = QString("%1 (%2)").arg(base).arg(suffix++);
+    return candidate;
+}
+
+bool DeviceList::renameDevice(DeviceObject *device, const QString &name)
+{
+    QString value = mqttSafe(name);
+    if (value.isEmpty() || value == device->name())
+        return true;
+    if (!nameAvailable(value, device))
+        return false;
+
+    emit deviceAboutToRename(device);
+    device->setName(value);
+    emit deviceRenamed(device);
+    return true;
+}
+
 Device DeviceList::parse(const QJsonObject &json)
 {
     QString name = json.value("name").toString();

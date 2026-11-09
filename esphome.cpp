@@ -330,8 +330,9 @@ void EspHomeDevice::onReadyRead(void)
 
                 if (!serverName.isEmpty() && m_device->name() == m_device->address())
                 {
-                    logInfo << m_device << "adopting device name" << serverName;
-                    m_device->setName(serverName);
+                    QString name = m_devices->uniqueName(serverName, m_device.data());
+                    logInfo << m_device << "adopting device name" << name;
+                    m_devices->renameDevice(m_device.data(), name);
                 }
             }
 
@@ -762,7 +763,8 @@ Device EspHomeDevice::subDevice(quint32 deviceId)
 
     if (sub.isNull())
     {
-        sub = Device(new DeviceObject(subName, address, m_device->port(), m_device->encryptionKey()));
+        QString name = m_devices->uniqueName(subName.isEmpty() ? address : subName);
+        sub = Device(new DeviceObject(name, address, m_device->port(), m_device->encryptionKey()));
         sub->setParentAddress(m_device->address());
         sub->setDiscovery(m_device->discovery());
         sub->setCloud(m_device->cloud());
@@ -770,7 +772,7 @@ Device EspHomeDevice::subDevice(quint32 deviceId)
         logInfo << m_device << "discovered sub-device" << subName << "(id" << deviceId << ")";
     }
 
-    sub->setName(subName);
+    // The declared sub-device name defines its address, but must not overwrite a user-assigned display name.
     sub->setManufacturerName(m_device->manufacturerName());
     sub->setModelName(QString("Subdev %1 of %2").arg(subName, m_device->name()));
     sub->setParentAddress(m_device->address());

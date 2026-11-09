@@ -15,6 +15,8 @@ Controller::Controller(const QString &configFile)
 
     m_propertiesTimer->setSingleShot(true);
     connect(m_propertiesTimer, &QTimer::timeout, this, &Controller::updateProperties);
+    connect(m_devices, &DeviceList::deviceAboutToRename, this, &Controller::deviceAboutToRename);
+    connect(m_devices, &DeviceList::deviceRenamed, this, &Controller::deviceUpdated);
 
     connect(m_esphome, &EspHomeManager::entitiesDiscovered, this, &Controller::entitiesDiscovered);
     connect(m_esphome, &EspHomeManager::stateChanged, this, &Controller::stateChanged);
@@ -359,14 +361,21 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                     break;
                 }
 
-                if (!m_devices->byHost(host).isNull())
+                if (!m_devices->nameAvailable(mqttSafe(host)))
                 {
-                    logWarning << "addDevice: device already exists for host" << host;
+                    logWarning << "addDevice: host conflicts with an existing device" << host;
+                    mqttPublish(mqttTopic("event/%1").arg(serviceTopic()), {{"event", "idDuplicate"}, {"device", host}});
                     break;
                 }
 
                 if (name.isEmpty())
                     name = mqttSafe(host);
+                if (!m_devices->nameAvailable(name))
+                {
+                    logWarning << "addDevice: name already in use" << name;
+                    mqttPublish(mqttTopic("event/%1").arg(serviceTopic()), {{"event", "nameDuplicate"}, {"device", name}});
+                    break;
+                }
 
                 auto device = Device(new DeviceObject(name, host, port, keyBytes));
                 device->setDiscovery(json.value("discovery").toBool(true));
@@ -435,8 +444,12 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                 if (device.isNull()) break;
 
                 QString name = mqttSafe(json.value("name").toString());
-                if (!name.isEmpty())
-                    device->setName(name);
+                if (!name.isEmpty() && !m_devices->nameAvailable(name, device.data()))
+                {
+                    logWarning << device << "rename failed, name already in use:" << name;
+                    mqttPublish(mqttTopic("event/%1").arg(serviceTopic()), {{"event", "nameDuplicate"}, {"device", device->name()}});
+                    break;
+                }
                 if (json.contains("active"))
                     device->setActive(json.value("active").toBool());
                 if (json.contains("discovery"))
@@ -447,9 +460,10 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                 if (device->active())
                     m_esphome->connectDevice(device.data());
 
-                m_devices->store();
-                publishExposes(device.data());
-                publishStatus();
+                if (!name.isEmpty() && name != device->name())
+                    m_devices->renameDevice(device.data(), name);
+                else
+                    deviceUpdated(device.data());
                 break;
             }
 
@@ -513,6 +527,35 @@ void Controller::updateProperties(void)
 
         publishDeviceState(device);
     }
+}
+
+void Controller::deviceAboutToRename(DeviceObject *device)
+{
+    if (!m_devices->names())
+        return;
+
+    QString topic = deviceTopic(device);
+    publishExposes(device, true);
+    mqttPublish(mqttTopic("device/%1/%2").arg(serviceTopic(), topic), QJsonObject(), true);
+    mqttPublish(mqttTopic("fd/%1/%2").arg(serviceTopic(), topic), QJsonObject(), true);
+    for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
+    {
+        if (it.value()->meta().value("special").toBool())
+            mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), topic).arg(it.key()), QJsonObject(), true);
+    }
+    for (const auto &endpoint : device->publishedEndpoints())
+        mqttPublish(mqttTopic("fd/%1/%2/%3").arg(serviceTopic(), topic, endpoint), QJsonObject(), true);
+}
+
+void Controller::deviceUpdated(DeviceObject *device)
+{
+    m_devices->store(true);
+    publishExposes(device);
+    publishDeviceStatus(device);
+    publishStatus();
+    if (device->active())
+        publishDeviceState(device);
+    mqttPublish(mqttTopic("event/%1").arg(serviceTopic()), {{"event", "updated"}, {"device", device->name()}});
 }
 
 void Controller::entitiesDiscovered(DeviceObject *device)

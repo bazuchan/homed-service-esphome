@@ -14,7 +14,7 @@ This clones `homed-service-common` into `../homed-common` (sibling of the repo d
 python3 tools/test-entity-cache.py
 ```
 
-Requires Python 3, g++, Qt5 Core development files and `moc` (Debian-style paths). An optional argument selects a Qt installation root instead of `/usr`. The tests use the production discovery builder, state handler, protobuf codec, database code and homed-common expose classes. They check JSON/disk round-trips, endpoint IDs, HA requests, legacy-cache migration, omitted proto3 values and missing readings. They do not start MQTT or connect to ESPHome devices.
+Requires Python 3, g++, Qt5 Core development files and `moc` (Debian-style paths). An optional argument selects a Qt installation root instead of `/usr`. The tests use the production discovery builder, state handler, protobuf codec, database code and homed-common expose classes. They check JSON/disk round-trips, endpoint IDs, HA requests, legacy-cache migration, omitted proto3 values, missing readings, name conflicts, retained-topic cleanup on rename and sub-device display names. They do not start MQTT or connect to ESPHome devices.
 
 ## Debian package
 

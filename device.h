@@ -107,8 +107,16 @@ public:
 
     Device byName(const QString &name, int *index = nullptr);
     Device byHost(const QString &host);
+    bool nameAvailable(const QString &name, DeviceObject *except = nullptr) const;
+    QString uniqueName(const QString &name, DeviceObject *except = nullptr) const;
+    bool renameDevice(DeviceObject *device, const QString &name);
     Device parse(const QJsonObject &json);
     static Expose createExpose(const QString &type, const QString &objectId, bool special);
+
+signals:
+
+    void deviceAboutToRename(DeviceObject *device);
+    void deviceRenamed(DeviceObject *device);
 
 private:
 

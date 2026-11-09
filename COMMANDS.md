@@ -14,6 +14,8 @@ Adds a device and immediately connects to it.
 
 `discovery` and `cloud` are optional and default to `true` when omitted from an MQTT command. The web add-device form starts with both checkboxes checked and sends their values explicitly. `discovery` controls Home Assistant discovery. `cloud` is saved per device and published in the service status for HOMEd Cloud. Newly discovered sub-devices inherit their parent's cloud flag; subsequent edits are independent.
 
+Device names must be unique and must not match another device's host/address. A conflicting explicit name is rejected with a `nameDuplicate` event; a conflicting host is rejected with `idDuplicate`.
+
 ## removeDevice
 
 Disconnects and removes a device. `device` can be the device name or hostname.
@@ -31,6 +33,8 @@ Updates device properties without reconnecting.
 ```
 
 All fields except `action` and `device` are optional. An omitted, empty or whitespace-only `name` preserves the current name. Omitting a flag preserves its current value. `discovery = false` clears the device Home Assistant discovery configs (local MQTT topics keep working). `active = false` lets an established connection finish but stops reconnecting; `active = true` resumes connection attempts.
+
+A duplicate name rejects the entire update, including flag changes. When `mqtt/names = true`, renaming clears the old retained expose, availability and state topics, then republishes under the new name. With `mqtt/names = false`, the address-based topics stay unchanged. Successful updates emit `updated` and are saved immediately.
 
 ## getProperties
 

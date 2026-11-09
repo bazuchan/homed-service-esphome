@@ -32,6 +32,8 @@ Native API states and commands are routed by the pair `device_id` + entity `key`
 
 A sub-device that stops being reported (removed from the ESPHome config, or the parent simply offline) is never deleted on its own — it's left in the database exactly as last seen, so if it's ever reconfigured back it picks up its previous `objectId`/expose mapping again rather than starting over as a new device. Only an explicit `removeDevice` command deletes it — and removing a parent this way also removes its sub-devices, since they can't function without it.
 
+Names adopted automatically from ESPHome are made unique with a numeric suffix such as `Room (2)` if needed. Sub-device display names can be edited independently of their stable addresses; rediscovery does not overwrite the user's name.
+
 ## State values
 
 ESPHome state responses are snapshots: omitted proto3 values mean zero, false or an empty string, not the previous reading. Optional light and climate readings are defaulted only when supported. Modern cover position defaults to zero (closed), including open/close-only covers.
