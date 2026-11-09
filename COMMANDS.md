@@ -57,7 +57,7 @@ Re-publishes current entity states for a device.
 | Entity type | Payload example |
 |-------------|-----------------|
 | `switch` (special) | `{"status": "on"}` / `{"status": "off"}` / `{"status": "toggle"}` |
-| `switch` (config/diagnostic, on the shared topic) | `{"<objectId>": true}` |
+| `switch` (config/diagnostic, on the shared topic) | `{"<objectId>": true}` / `{"<objectId>": false}` / `{"<objectId>": "toggle"}` |
 | `light` | `{"status": "on"}`, `{"level": 128}`, `{"color": [255, 0, 0]}`, `{"colorTemperature": 370}` |
 | `cover` | `{"cover": "open"}` / `{"cover": "close"}` / `{"cover": "stop"}`, `{"position": 50}` |
 | `climate` | `{"systemMode": "heat"}`, `{"targetTemperature": 21.5}`, `{"fanMode": "auto"}`, `{"operationMode": "eco"}` |
@@ -67,6 +67,8 @@ Re-publishes current entity states for a device.
 | `button` | `{"<objectId>": true}` |
 
 `systemMode` values: `off`, `heat`, `cool`, `heat_cool`, `dry`, `auto`, `fan` (ESPHome's `FAN_ONLY` mode — not `fan_only`, that's only used in Home Assistant's own UI). `fanMode`/`operationMode` accept either one of ESPHome's standard tokens (`fanMode`: `on`, `off`, `auto`, `low`, `medium`, `high`, `middle`, `focus`, `diffuse`, `quiet`; `operationMode`: `none`, `home`, `away`, `boost`, `comfort`, `eco`, `sleep`, `activity`) or any custom fan mode/preset name the device itself advertises.
+
+Switch `toggle` inverts the last reported state: `status` for special switches, or the entity's `objectId` for config/diagnostic switches. If that state is unknown, the existing fallback is to turn on; explicit on/off commands do not depend on cached state.
 
 Entity states are published the same way: special entities to their own `homed/fd/esphome/<device>/<N>` topic, everything else merged into one JSON object on `homed/fd/esphome/<device>`.
 

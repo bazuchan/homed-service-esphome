@@ -1494,7 +1494,8 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
         bool state;
         if (valueStr == "toggle")
         {
-            state = (ep->stateMap().value("status").toString() != "on");
+            QString property = ep->meta().value("special").toBool() ? "status" : objectId;
+            state = (ep->stateMap().value(property).toString() != "on");
         }
         else
         {
