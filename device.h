@@ -107,6 +107,9 @@ public:
 
     Device byName(const QString &name, int *index = nullptr);
     Device byHost(const QString &host);
+    Device parentDevice(DeviceObject *device) const;
+    bool deviceActive(DeviceObject *device) const;
+    bool deviceOnline(DeviceObject *device) const;
     bool nameAvailable(const QString &name, DeviceObject *except = nullptr) const;
     QString uniqueName(const QString &name, DeviceObject *except = nullptr) const;
     bool renameDevice(DeviceObject *device, const QString &name);

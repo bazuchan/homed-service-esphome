@@ -1362,6 +1362,9 @@ bool EspHomeDevice::findEndpointByKey(quint32 key, quint32 deviceId, Device &out
 
 void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const QString &action, const QVariant &value)
 {
+    if (!device->active() || !m_device->active())
+        return;
+
     logInfo << device << "sendCommand ep" << endpointId << action << value.toString() << "state" << static_cast<int>(m_state);
 
     if (m_state != State::Subscribe)
@@ -1590,7 +1593,7 @@ void EspHomeManager::connectAll(void)
 
 void EspHomeManager::connectDevice(DeviceObject *device)
 {
-    if (!device->parentAddress().isEmpty())
+    if (!device->active() || !device->parentAddress().isEmpty())
         return;
 
     auto existing = m_connections.value(device->host());
@@ -1613,19 +1616,36 @@ void EspHomeManager::connectDevice(DeviceObject *device)
 
 void EspHomeManager::disconnectDevice(DeviceObject *device)
 {
-    // a sub-device's host never has its own entry in m_connections, so this is already a no-op for it -- only its parent connection can be disconnected
-    auto conn = m_connections.value(device->host());
-    if (!conn)
+    // A sub-device is disabled logically; its siblings still need the shared connection.
+    if (!device->parentAddress().isEmpty())
         return;
 
-    conn->disconnectFromDevice();
-    m_connections.remove(device->host());
-    delete conn;
+    auto conn = m_connections.take(device->host());
+    if (conn)
+    {
+        conn->disconnectFromDevice();
+        delete conn;
+    }
+
+    // Drop readings from the closed session so reactivation cannot publish them as fresh state.
+    for (const auto &item : *m_devices)
+    {
+        if (item.data() != device && item->parentAddress() != device->address())
+            continue;
+        item->setAvailability(Availability::Offline);
+        for (const auto &ep : item->endpoints())
+            ep.staticCast<EndpointObject>()->stateMap().clear();
+    }
+    emit availabilityChanged(device);
 }
 
 void EspHomeManager::sendCommand(DeviceObject *device, quint8 endpointId, const QString &action, const QVariant &value)
 {
-    QString connHost = device->parentAddress().isEmpty() ? device->host() : device->parentAddress();
+    if (!m_devices->deviceActive(device))
+        return;
+
+    Device parent = m_devices->parentDevice(device);
+    QString connHost = parent.isNull() ? device->host() : parent->host();
     auto conn = m_connections.value(connHost);
     if (conn)
         conn->sendCommand(device, endpointId, action, value);

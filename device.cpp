@@ -76,6 +76,33 @@ Device DeviceList::byHost(const QString &host)
     return Device();
 }
 
+Device DeviceList::parentDevice(DeviceObject *device) const
+{
+    if (!device->parentAddress().isEmpty())
+        for (const auto &parent : *this)
+            if (parent->address() == device->parentAddress())
+                return parent;
+    return Device();
+}
+
+bool DeviceList::deviceActive(DeviceObject *device) const
+{
+    if (!device->active())
+        return false;
+    if (device->parentAddress().isEmpty())
+        return true;
+    Device parent = parentDevice(device);
+    return !parent.isNull() && parent->active();
+}
+
+bool DeviceList::deviceOnline(DeviceObject *device) const
+{
+    if (!deviceActive(device) || device->availability() != Availability::Online)
+        return false;
+    Device parent = parentDevice(device);
+    return parent.isNull() || parent->availability() == Availability::Online;
+}
+
 bool DeviceList::nameAvailable(const QString &name, DeviceObject *except) const
 {
     if (name.isEmpty())

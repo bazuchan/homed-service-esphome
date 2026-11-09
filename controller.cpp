@@ -297,7 +297,7 @@ void Controller::publishStatus(void)
 
 void Controller::publishDeviceStatus(DeviceObject *device)
 {
-    QString status = device->availability() == Availability::Online ? "online" : "offline";
+    QString status = m_devices->deviceOnline(device) ? "online" : "offline";
     mqttPublish(mqttTopic("device/%1/%2").arg(serviceTopic(), deviceTopic(device)),
         {{"lastSeen", device->lastSeen()}, {"status", status}}, true);
 }
@@ -459,6 +459,8 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
 
                 if (device->active())
                     m_esphome->connectDevice(device.data());
+                else
+                    m_esphome->disconnectDevice(device.data());
 
                 if (!name.isEmpty() && name != device->name())
                     m_devices->renameDevice(device.data(), name);
@@ -487,7 +489,7 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
 
         Device device = m_devices->byName(deviceId);
         if (device.isNull()) device = m_devices->byHost(deviceId);
-        if (device.isNull())
+        if (device.isNull() || !m_devices->deviceActive(device.data()))
             return;
 
         bool slotOk = false;
@@ -579,7 +581,7 @@ void Controller::stateChanged(DeviceObject *device, quint8 endpointId)
 
 void Controller::publishDeviceState(DeviceObject *device)
 {
-    if (!mqttStatus())
+    if (!mqttStatus() || !m_devices->deviceActive(device))
         return;
 
     QString devTopic = deviceTopic(device);
@@ -611,7 +613,11 @@ void Controller::publishDeviceState(DeviceObject *device)
 void Controller::availabilityChanged(DeviceObject *device)
 {
     publishDeviceStatus(device);
+    if (device->parentAddress().isEmpty())
+        for (const auto &sub : *m_devices)
+            if (sub->parentAddress() == device->address())
+                publishDeviceStatus(sub.data());
 
-    if (device->availability() == Availability::Online)
+    if (m_devices->deviceOnline(device))
         m_propertiesTimer->start(UPDATE_PROPERTIES_DELAY);
 }

@@ -26,13 +26,13 @@ Disconnects and removes a device. `device` can be the device name or hostname.
 
 ## updateDevice
 
-Updates device properties without reconnecting.
+Updates device properties. Changing `active` may stop or resume the parent connection; other edits do not restart an established connection.
 
 ```json
 {"action": "updateDevice", "device": "my-device", "name": "new-name", "active": true, "discovery": true, "cloud": true}
 ```
 
-All fields except `action` and `device` are optional. An omitted, empty or whitespace-only `name` preserves the current name. Omitting a flag preserves its current value. `discovery = false` clears the device Home Assistant discovery configs (local MQTT topics keep working). `active = false` lets an established connection finish but stops reconnecting; `active = true` resumes connection attempts.
+All fields except `action` and `device` are optional. An omitted, empty or whitespace-only `name` preserves the current name. Omitting a flag preserves its current value. `discovery = false` clears the device Home Assistant discovery configs (local MQTT topics keep working). `active = false` blocks commands and state publication and reports the device offline. For a parent device it closes the TCP connection, stops retries and makes its sub-devices unavailable without changing their own flags. Disabling a sub-device leaves the shared connection and siblings running. `active = true` resumes parent connection attempts, or re-enables a sub-device when its parent is active and connected.
 
 A duplicate name rejects the entire update, including flag changes. When `mqtt/names = true`, renaming clears the old retained expose, availability and state topics, then republishes under the new name. With `mqtt/names = false`, the address-based topics stay unchanged. Successful updates emit `updated` and are saved immediately.
 

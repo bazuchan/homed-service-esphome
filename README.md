@@ -34,6 +34,12 @@ A sub-device that stops being reported (removed from the ESPHome config, or the 
 
 Names adopted automatically from ESPHome are made unique with a numeric suffix such as `Room (2)` if needed. Sub-device display names can be edited independently of their stable addresses; rediscovery does not overwrite the user's name.
 
+## Active devices
+
+Inactive devices reject commands, publish no `fd` readings and report offline. Disabling a parent closes its connection and stops retries; all its sub-devices become unavailable, but keep their individual Active settings. Cached readings from the closed connection are discarded. Re-enabling the parent reconnects and obtains fresh states.
+
+Disabling just a sub-device does not interrupt its parent or siblings. Incoming data may still refresh its internal cache, but is not published until it is enabled again. A sub-device cannot operate while its parent is inactive or missing.
+
 ## State values
 
 ESPHome state responses are snapshots: omitted proto3 values mean zero, false or an empty string, not the previous reading. Optional light and climate readings are defaulted only when supported. Modern cover position defaults to zero (closed), including open/close-only covers.
