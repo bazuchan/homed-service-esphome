@@ -132,7 +132,7 @@ private:
     Device subDevice(quint32 deviceId);
     QList<Device> knownSubDevices(void) const;
 
-    bool findEndpointByKey(quint32 key, Device &outDevice, quint8 &outEndpointId) const;
+    bool findEndpointByKey(quint32 key, quint32 deviceId, Device &outDevice, quint8 &outEndpointId) const;
 };
 
 class EspHomeManager : public QObject

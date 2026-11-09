@@ -28,6 +28,8 @@ Devices are added and removed at runtime via MQTT commands. On each connection t
 
 ESPHome devices that group entities under [sub-devices](https://esphome.io/components/index.html#devices) are published as separate HOMEd devices rather than as endpoints of the parent, one per sub-device — address `<parent address>_<sub-device name>`, model `Subdev <sub-device name> of <parent name>`. They share the parent's connection (no separate TCP connection, no separate `addDevice`), and are (re)discovered automatically alongside it.
 
+Native API states and commands are routed by the pair `device_id` + entity `key`. The protocol `device_id` is refreshed during discovery and is not used as the persistent HOMEd identity, so reordering sub-devices does not change their addresses.
+
 A sub-device that stops being reported (removed from the ESPHome config, or the parent simply offline) is never deleted on its own — it's left in the database exactly as last seen, so if it's ever reconfigured back it picks up its previous `objectId`/expose mapping again rather than starting over as a new device. Only an explicit `removeDevice` command deletes it — and removing a parent this way also removes its sub-devices, since they can't function without it.
 
 ## Web UI

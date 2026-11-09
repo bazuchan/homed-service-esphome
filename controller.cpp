@@ -430,8 +430,9 @@ void Controller::mqttReceived(const QByteArray &message, const QMqttTopicName &t
                 if (device.isNull()) device = m_devices->byHost(id);
                 if (device.isNull()) break;
 
-                if (json.contains("name"))
-                    device->setName(mqttSafe(json.value("name").toString()));
+                QString name = mqttSafe(json.value("name").toString());
+                if (!name.isEmpty())
+                    device->setName(name);
                 if (json.contains("active"))
                     device->setActive(json.value("active").toBool());
                 if (json.contains("discovery"))

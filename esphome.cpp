@@ -868,6 +868,7 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
 
         auto ep = QSharedPointer<EndpointObject>::create(endpointId, device);
         ep->meta().insert("key", info.key);
+        ep->meta().insert("deviceId", info.deviceId);
         ep->meta().insert("type", info.type);
         ep->meta().insert("objectId", objectId);
         ep->meta().insert("special", special);
@@ -1073,14 +1074,36 @@ void EspHomeDevice::applyEntitiesToDevice(const Device &device, const QList<Enti
 void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
 {
     auto fields = ProtoDecoder::decode(payload);
-    quint32 key = 0;
+    quint32 key = 0, deviceId = 0;
+    int deviceIdField = 0;
     QMap<QString, QVariant> state;
+
+    // device_id has a different field number in each state response (api.proto).
+    switch (type)
+    {
+        case MsgType::StateBinary:
+        case MsgType::StateSensor:
+        case MsgType::StateTextSensor:
+        case MsgType::StateNumber:
+        case MsgType::StateSelect:     deviceIdField = 4; break;
+        case MsgType::StateSwitch:
+        case MsgType::StateLock:       deviceIdField = 3; break;
+        case MsgType::StateCover:      deviceIdField = 6; break;
+        case MsgType::StateLight:      deviceIdField = 14; break;
+        case MsgType::StateClimate:    deviceIdField = 16; break;
+        default: return;
+    }
 
     for (const auto &f : fields)
     {
         if (f.field() == 1 && f.wireType() == 5)
         {
             key = f.fixed32();
+            continue;
+        }
+        if (f.field() == deviceIdField && f.wireType() == 0)
+        {
+            deviceId = static_cast<quint32>(f.varint());
             continue;
         }
 
@@ -1186,10 +1209,10 @@ void EspHomeDevice::processStateUpdate(quint16 type, const QByteArray &payload)
             state.insert("running", false);
     }
 
-    // Find endpoint by key -- may belong to a sub-device, not necessarily m_device
+    // Keys are scoped to a protocol device_id; omitted device_id means the parent (0).
     Device device;
     quint8 endpointId;
-    if (!findEndpointByKey(key, device, endpointId))
+    if (!findEndpointByKey(key, deviceId, device, endpointId))
         return;
 
     auto ep = device->endpoints().value(endpointId).staticCast<EndpointObject>();
@@ -1301,24 +1324,18 @@ QList<Device> EspHomeDevice::knownSubDevices(void) const
     return list;
 }
 
-bool EspHomeDevice::findEndpointByKey(quint32 key, Device &outDevice, quint8 &outEndpointId) const
+bool EspHomeDevice::findEndpointByKey(quint32 key, quint32 deviceId, Device &outDevice, quint8 &outEndpointId) const
 {
-    for (auto it = m_device->endpoints().begin(); it != m_device->endpoints().end(); it++)
-    {
-        if (it.value()->meta().value("key").toUInt() != key)
-            continue;
-        outDevice = m_device;
-        outEndpointId = it.key();
-        return true;
-    }
+    QList<Device> devices = knownSubDevices();
+    devices.prepend(m_device);
 
-    for (const auto &sub : knownSubDevices())
+    for (const auto &device : devices)
     {
-        for (auto it = sub->endpoints().begin(); it != sub->endpoints().end(); it++)
+        for (auto it = device->endpoints().begin(); it != device->endpoints().end(); it++)
         {
-            if (it.value()->meta().value("key").toUInt() != key)
+            if (it.value()->meta().value("key").toUInt() != key || it.value()->meta().value("deviceId").toUInt() != deviceId)
                 continue;
-            outDevice = sub;
+            outDevice = device;
             outEndpointId = it.key();
             return true;
         }
@@ -1345,6 +1362,17 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     }
 
     quint32 key = ep->meta().value("key").toUInt();
+    quint32 deviceId = ep->meta().value("deviceId").toUInt();
+    Device currentDevice;
+    quint8 currentEndpointId;
+
+    // A disappeared sub-device may still be in the database; never command its old, possibly reassigned device_id.
+    if (!findEndpointByKey(key, deviceId, currentDevice, currentEndpointId) || currentDevice.data() != device || currentEndpointId != endpointId)
+    {
+        logWarning << device << "sendCommand: entity is not in the current discovery, dropping";
+        return;
+    }
+
     QString type = ep->meta().value("type").toString();
     QString objectId = ep->meta().value("objectId").toString();
     logInfo << device << "sendCommand: type" << type << "key" << key << "objectId" << objectId;
@@ -1353,6 +1381,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(3, deviceId);
         QString valueStr = value.toString().toLower();
         bool state;
         if (valueStr == "toggle")
@@ -1371,6 +1400,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(5, deviceId);
         QString valueStr = value.toString().toLower();
         bool locked = valueStr == "toggle" ? (ep->stateMap().value("status").toString() != "off") : (valueStr == "off" || valueStr == "0" || valueStr == "false");
         cmd.addVarint(2, locked ? 1 : 0); // LOCK_LOCK=1, LOCK_UNLOCK=0
@@ -1380,6 +1410,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(28, deviceId);
 
         if (action == "status")
         {
@@ -1422,6 +1453,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(9, deviceId);
 
         if (action == "cover")
         {
@@ -1451,6 +1483,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(24, deviceId);
 
         if (action == "systemMode")
         {
@@ -1501,6 +1534,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(3, deviceId);
         cmd.addString(2, value.toString());
         sendMessage(MsgType::SelectCommand, cmd.data());
     }
@@ -1508,6 +1542,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(3, deviceId);
         cmd.addFloat(2, value.toFloat());
         sendMessage(MsgType::NumberCommand, cmd.data());
     }
@@ -1515,6 +1550,7 @@ void EspHomeDevice::sendCommand(DeviceObject *device, quint8 endpointId, const Q
     {
         ProtoEncoder cmd;
         cmd.addFixed32(1, key);
+        cmd.addVarint(2, deviceId);
         sendMessage(MsgType::ButtonCommand, cmd.data());
     }
 }
